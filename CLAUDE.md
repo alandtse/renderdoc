@@ -50,7 +50,11 @@ This detects VS automatically via vswhere and passes `/p:PlatformToolset` and `/
 **To verify a build compiles after making changes, always use this script** — do not open the solution in the IDE as that will retarget the `.vcxproj` files. Use `--no-extras` to skip the 3rdparty UI asset download when only checking compilation:
 
 ```bat
+rem Quick check (day-to-day, catches compile and link errors)
 util\buildscripts\build-windows.cmd Development x64 --no-extras
+
+rem Before opening a PR, also run Release (catches ODR violations, LTCG issues)
+util\buildscripts\build-windows.cmd Release x64 --no-extras
 ```
 
 **Do not commit `.vcxproj` retargeting changes.** Opening the solution in VS2022 will modify ~24 `.vcxproj` files (toolset `v140→v143`, SDK version). These are local IDE noise — the build script and CI both override the toolset without modifying files. Run `git restore -- '*.vcxproj'` to discard them.
