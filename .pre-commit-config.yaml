@@ -5,6 +5,14 @@ ci:
   autoupdate_commit_msg: 'chore: update pre-commit hook versions'
 
 repos:
+  - repo: local
+    hooks:
+      - id: commit-msg-length
+        name: Commit subject line max 72 characters
+        language: system
+        entry: bash util/check_commit_msg.sh
+        stages: [commit-msg]
+
   - repo: https://github.com/pre-commit/mirrors-clang-format
     rev: v15.0.7
     hooks:
