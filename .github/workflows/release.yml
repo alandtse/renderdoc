@@ -30,7 +30,16 @@ jobs:
         # Find the latest fork tag across ALL upstream base versions.
         # Fork semver is continuous — it doesn't reset when upstream bumps.
         # The upstream prefix (1.44 vs 1.45) already communicates the upstream base.
-        LAST_TAG=$(git tag --list "v*-fork.*.*.*" --sort=-version:refname | head -n1)
+        LAST_TAG=$(git tag --list "v*-alandtse.*.*.*" --sort=-version:refname | head -n1)
+
+        # Skip if HEAD is already tagged — prevents force-pushed amendments from
+        # creating duplicate releases.
+        HEAD_TAG=$(git tag --list "v*-alandtse.*.*.*" --points-at HEAD | head -n1)
+        if [ -n "$HEAD_TAG" ]; then
+          echo "released=false" >> "$GITHUB_OUTPUT"
+          echo "HEAD is already tagged as ${HEAD_TAG} — skipping release."
+          exit 0
+        fi
 
         if [ -z "$LAST_TAG" ]; then
           # No fork releases yet
@@ -38,7 +47,7 @@ jobs:
           RANGE="HEAD"
         else
           # Carry forward fork version from whatever the last tag was
-          FORK_VER=$(echo "$LAST_TAG" | sed 's/v[0-9]*\.[0-9]*-fork\.//')
+          FORK_VER=$(echo "$LAST_TAG" | sed 's/v[0-9]*\.[0-9]*-alandtse\.//')
           FORK_MAJOR="${FORK_VER%%.*}"; FORK_VER="${FORK_VER#*.}"
           FORK_MINOR="${FORK_VER%%.*}"; FORK_PATCH="${FORK_VER#*.}"
           RANGE="${LAST_TAG}..HEAD"
@@ -79,7 +88,7 @@ jobs:
           patch) FORK_PATCH=$((FORK_PATCH + 1)) ;;
         esac
 
-        TAG="v${UPSTREAM_BASE}-fork.${FORK_MAJOR}.${FORK_MINOR}.${FORK_PATCH}"
+        TAG="v${UPSTREAM_BASE}-alandtse.${FORK_MAJOR}.${FORK_MINOR}.${FORK_PATCH}"
         echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
         echo "released=true" >> "$GITHUB_OUTPUT"
         echo "Computed tag: ${TAG} (bump: ${BUMP})"
