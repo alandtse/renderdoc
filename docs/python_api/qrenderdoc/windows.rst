@@ -137,3 +137,9 @@ Shader Message Viewer
 .. autoclass:: qrenderdoc.ShaderMessageViewer
   :members:
 
+Pixel Debug Sync Panel
+----------------------
+
+.. autoclass:: qrenderdoc.PixelDebugSyncPanel
+  :members:
+

@@ -724,6 +724,10 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
   {
     return InvokeRetFunction<IResourceInspector *>(&ICaptureContext::GetResourceInspector);
   }
+  virtual IPixelDebugSyncPanel *GetPixelDebugSyncPanel() override
+  {
+    return InvokeRetFunction<IPixelDebugSyncPanel *>(&ICaptureContext::GetPixelDebugSyncPanel);
+  }
   virtual bool HasEventBrowser() override
   {
     return InvokeRetFunction<bool>(&ICaptureContext::HasEventBrowser);
@@ -783,6 +787,10 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
   virtual bool HasResourceInspector() override
   {
     return InvokeRetFunction<bool>(&ICaptureContext::HasResourceInspector);
+  }
+  virtual bool HasPixelDebugSyncPanel() override
+  {
+    return InvokeRetFunction<bool>(&ICaptureContext::HasPixelDebugSyncPanel);
   }
 
   virtual void ShowEventBrowser() override

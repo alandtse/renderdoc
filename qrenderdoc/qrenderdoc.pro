@@ -193,6 +193,8 @@ SOURCES += Code/qrenderdoc.cpp \
     Windows/TextureViewer.cpp \
     Windows/ShaderViewer.cpp \
     Windows/ShaderMessageViewer.cpp \
+    Windows/PixelDebugSyncManager.cpp \
+    Windows/PixelDebugSyncPanel.cpp \
     Windows/DescriptorViewer.cpp \
     Widgets/Extended/RDLineEdit.cpp \
     Widgets/Extended/RDTextEdit.cpp \
@@ -282,6 +284,8 @@ HEADERS += Code/CaptureContext.h \
     Windows/TextureViewer.h \
     Windows/ShaderViewer.h \
     Windows/ShaderMessageViewer.h \
+    Windows/PixelDebugSyncManager.h \
+    Windows/PixelDebugSyncPanel.h \
     Windows/DescriptorViewer.h \
     Widgets/Extended/RDLineEdit.h \
     Widgets/Extended/RDTextEdit.h \

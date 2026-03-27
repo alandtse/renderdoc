@@ -1403,6 +1403,29 @@ protected:
 
 DECLARE_REFLECTION_STRUCT(IShaderMessageViewer);
 
+DOCUMENT(R"(A panel that synchronises two or more pixel shader debuggers, stepping them in lock-step
+and highlighting variable values that diverge beyond a configurable threshold.
+
+This window is retrieved by calling :meth:`CaptureContext.GetPixelDebugSyncPanel`.
+)");
+struct IPixelDebugSyncPanel
+{
+  DOCUMENT(R"(Retrieves the PySide2 QWidget for this :class:`PixelDebugSyncPanel` if PySide2 is
+available, or otherwise returns a unique opaque pointer that can be passed back to any RenderDoc
+functions expecting a QWidget.
+
+:return: Return the widget handle, either a PySide2 handle or an opaque handle.
+:rtype: QWidget
+)");
+  virtual QWidget *Widget() = 0;
+
+protected:
+  IPixelDebugSyncPanel() = default;
+  ~IPixelDebugSyncPanel() = default;
+};
+
+DECLARE_REFLECTION_STRUCT(IPixelDebugSyncPanel);
+
 DOCUMENT(R"(A descriptor viewer window.
 
 This window is retrieved by calling :meth:`CaptureContext.ViewDescriptorStore` or :meth:`CaptureContext.ViewDescriptors`.
@@ -2730,6 +2753,20 @@ on the UI thread.
 :rtype: bool
 )");
   virtual bool HasResourceInspector() = 0;
+
+  DOCUMENT(R"(Retrieve the current singleton :class:`PixelDebugSyncPanel`.
+
+:return: The current window, which is created (but not shown) if there wasn't one open.
+:rtype: PixelDebugSyncPanel
+)");
+  virtual IPixelDebugSyncPanel *GetPixelDebugSyncPanel() = 0;
+
+  DOCUMENT(R"(Check if there is a current :class:`PixelDebugSyncPanel` open.
+
+:return: ``True`` if there is a window open.
+:rtype: bool
+)");
+  virtual bool HasPixelDebugSyncPanel() = 0;
 
   DOCUMENT("Raise the current :class:`EventBrowser`, showing it in the default place if needed.");
   virtual void ShowEventBrowser() = 0;

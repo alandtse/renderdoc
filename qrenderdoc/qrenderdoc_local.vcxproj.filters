@@ -762,6 +762,18 @@
     <ClCompile Include="Windows\ShaderMessageViewer.cpp">
       <Filter>Windows</Filter>
     </ClCompile>
+    <ClCompile Include="$(IntDir)generated\moc_PixelDebugSyncManager.cpp">
+      <Filter>Generated Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Windows\PixelDebugSyncManager.cpp">
+      <Filter>Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="$(IntDir)generated\moc_PixelDebugSyncPanel.cpp">
+      <Filter>Generated Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Windows\PixelDebugSyncPanel.cpp">
+      <Filter>Windows</Filter>
+    </ClCompile>
     <ClCompile Include="$(IntDir)generated\moc_MarkerBreadcrumbs.cpp">
       <Filter>Generated Files</Filter>
     </ClCompile>
@@ -1587,6 +1599,12 @@
       <Filter>Windows</Filter>
     </CustomBuild>
     <CustomBuild Include="Windows\ShaderMessageViewer.ui">
+      <Filter>Windows</Filter>
+    </CustomBuild>
+    <CustomBuild Include="Windows\PixelDebugSyncManager.h">
+      <Filter>Windows</Filter>
+    </CustomBuild>
+    <CustomBuild Include="Windows\PixelDebugSyncPanel.h">
       <Filter>Windows</Filter>
     </CustomBuild>
     <CustomBuild Include="Widgets\MarkerBreadcrumbs.h">

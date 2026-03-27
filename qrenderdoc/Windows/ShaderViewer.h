@@ -29,13 +29,16 @@
 #include <QSet>
 #include <QStyledItemDelegate>
 #include "Code/Interface/QRDInterface.h"
+#include "PixelDebugSyncManager.h"
 
 namespace Ui
 {
 class ShaderViewer;
 }
 
+class RDTreeWidget;
 class RDTreeWidgetItem;
+class QLabel;
 struct ShaderDebugTrace;
 struct ShaderReflection;
 class ScintillaEdit;
@@ -45,6 +48,7 @@ class QKeyEvent;
 class QMouseEvent;
 class QComboBox;
 class QTextEdit;
+class QToolButton;
 
 // from Scintilla
 typedef intptr_t sptr_t;
@@ -175,6 +179,41 @@ public:
 
   virtual rdcstrpairs GetCurrentFileContents() override;
 
+  // Sync group support (used by PixelDebugSyncManager / PixelDebugSyncPanel)
+
+  // Join the given group on the singleton sync manager. Removes the viewer from any prior group.
+  void joinSyncGroup(uint32_t groupId);
+  // Leave the current sync group, if any.
+  void leaveSyncGroup();
+  bool isInSyncGroup() const { return m_SyncGroupId != ~0U; }
+
+  // Called by PixelDebugSyncManager to drive this viewer to a specific step without re-notifying
+  // the manager (re-entry guard).
+  void syncStep(uint32_t stepIndex);
+
+  // Called by PixelDebugSyncManager to drive this viewer's view mode without re-notifying
+  // the manager (re-entry guard).
+  void syncDebugMode(bool sourceDebugging, bool intView, bool floatView);
+
+  // Accessors used by PixelDebugSyncManager for comparison and divergence detection.
+  const QList<ShaderVariable> &GetCurrentVariables() const { return m_Variables; }
+  uint32_t GetCurrentInstruction() const;
+  QString debugContext() const { return m_DebugContext; }
+  uint32_t debugEventId() const { return m_DebugEventId; }
+  // The ResourceId of the shader being debugged (for validating sync group membership).
+  ResourceId shaderResourceId() const
+  {
+    return m_ShaderDetails ? m_ShaderDetails->resourceId : ResourceId();
+  }
+  bool isSourceDebugging();
+  bool isIntView() const;
+  bool isFloatView() const;
+
+  // Given a debug variable path (e.g. "r0"), returns the first matching high-level source variable
+  // name from the current instruction's sourceVars or the trace's global sourceVars.
+  // Returns an empty string if no mapping is found.
+  QString sourceNameForDebugPath(const QString &path) const;
+
   // ICaptureViewer
   void OnCaptureLoaded() override;
   void OnCaptureClosed() override;
@@ -251,8 +290,7 @@ private:
   void showVariableTooltip(QString name);
   void updateVariableTooltip();
   void hideVariableTooltip();
-
-  bool isSourceDebugging();
+  QString syncDiffTooltipSuffix(const SourceVariableMapping &mapping);
 
   void cacheResources();
 
@@ -362,6 +400,46 @@ private:
 
   QTextEdit *debugInfoLog = NULL;
 
+  // The event ID that was current when this debug session was started, used for "go to debug event".
+  uint32_t m_DebugEventId = 0;
+
+  // Sync group tracking
+  uint32_t m_SyncGroupId = ~0U;    // ~0U means not in any group
+  bool m_SyncStepping = false;     // true while the sync manager is driving this viewer
+  bool m_SyncMode = false;         // true while manager is driving display mode sync
+  QToolButton *m_SyncBtn = NULL;
+
+  // Divergence highlighting state
+  QSet<QString> m_DivergentPaths;    // debug-var paths that differ across sync group viewers
+  // Per-component divergence: maps debug-var path → QList<bool> (rows*columns entries).
+  // Used so that source variables are only highlighted when their specific mapped component
+  // diverges, not just because another component of the same register diverges.
+  QMap<QString, QList<bool>> m_DivergentComponents;
+  bool m_LastWasDivergent = false;    // previous-step divergence state, for edge detection
+  QMetaObject::Connection m_SyncStepConnection;    // connection to stepCompleted signal
+
+  // Embedded sync status label (shown as a docking tab when in a sync group)
+  QWidget *m_SyncDiffPanel = NULL;
+  QLabel *m_SyncStatusLabel = NULL;
+
+  // Re-entry guard: prevents expansion-sync from triggering an infinite loop.
+  bool m_SyncExpanding = false;
+  QMetaObject::Connection m_SyncExpandedConnection;
+  QMetaObject::Connection m_SyncCollapsedConnection;
+
+  void updateSyncUI();
+  void updateSyncButtonTooltip();
+  void syncButtonContextMenu(const QPoint &pos);
+  void updateSyncStatusLabel();
+
+  // Apply an expansion state received from a peer viewer (re-entry-safe).
+  void applySyncExpansion(const QSet<uint> &state);
+
+  // Run forwards or backwards until any value or branch divergence is detected across the group.
+  void runToDivergence(bool forward);
+  // Bookmark the current instruction in the disassembly and source views (for divergence events).
+  void addDivergenceBookmark();
+
   static const int CURRENT_MARKER = 0;
   static const int BREAKPOINT_MARKER = 2;
   static const int FINISHED_MARKER = 4;
@@ -438,6 +516,10 @@ private:
   };
 
   bool step(bool forward, StepMode mode);
+
+  // Notify the sync manager that this viewer has moved to a new step. No-op when m_SyncGroupId is
+  // unset or when m_SyncStepping is true (prevents re-entrant notifications).
+  void notifySyncManager();
 
   void runToCursor(bool forward);
   void runTo(const rdcarray<uint32_t> &runToInstructions, bool forward, ShaderEvents condition);
