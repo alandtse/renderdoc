@@ -1,0 +1,75 @@
+name: Upstream Sync
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # Daily at 6am UTC; skips immediately if upstream hasn't moved
+  workflow_dispatch:
+
+jobs:
+  sync:
+    name: Merge upstream v1.x into dev
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/baldurk/renderdoc.git
+          git fetch upstream v1.x
+
+      - name: Check if upstream has new commits
+        id: check
+        run: |
+          UPSTREAM_SHA=$(git rev-parse upstream/v1.x)
+          echo "upstream_sha=$UPSTREAM_SHA" >> $GITHUB_OUTPUT
+          if git merge-base --is-ancestor upstream/v1.x HEAD; then
+            echo "Dev already contains upstream/v1.x — nothing to do."
+            echo "status=current" >> $GITHUB_OUTPUT
+          else
+            echo "status=behind" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Merge upstream into dev
+        id: merge
+        if: steps.check.outputs.status == 'behind'
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          UPSTREAM_SHORT=$(git rev-parse --short upstream/v1.x)
+          if git merge --no-ff -m "chore(upstream-sync): merge upstream v1.x ${DATE} (${UPSTREAM_SHORT})" upstream/v1.x; then
+            git push origin dev
+            echo "status=ok" >> $GITHUB_OUTPUT
+          else
+            git merge --abort
+            echo "status=conflict" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Open issue on conflict
+        if: steps.merge.outputs.status == 'conflict'
+        run: |
+          UPSTREAM_SHA="${{ steps.check.outputs.upstream_sha }}"
+          gh issue create \
+            --title "Upstream sync conflict — manual resolution needed" \
+            --label "upstream-sync" \
+            --body "Automated merge of upstream \`v1.x\` into \`dev\` failed due to conflicts.
+
+          Upstream is at: https://github.com/baldurk/renderdoc/commit/${UPSTREAM_SHA}
+
+          To resolve manually:
+          \`\`\`bash
+          git fetch upstream
+          git checkout dev
+          git merge upstream/v1.x
+          # resolve conflicts, then:
+          git push origin dev
+          \`\`\`"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

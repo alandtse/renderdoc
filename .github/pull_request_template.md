@@ -1,13 +1,14 @@
 <!--
-Before submitting a pull request you are strongly recommended to read the
-docs/CONTRIBUTING.md file which gives some information on how to prepare a
-change:
+UPSTREAM FIRST: If this change does not use LLM tooling and is not fork-specific,
+please submit it to upstream RenderDoc instead:
+  https://github.com/baldurk/renderdoc
 
-https://github.com/baldurk/renderdoc/blob/v1.x/docs/CONTRIBUTING.md
+Changes accepted upstream flow into this fork automatically. Submit here only if
+the change uses LLM assistance, builds on a fork-specific feature, or has been
+declined upstream. See docs/CONTRIBUTING.md for the full upstream-first policy.
 
-For small changes you don't have to read the document end to end, but should at
-least look at the sections on how to ensure your code and commits are formatted
-according to the style requirements.
+Before submitting here, read:
+https://github.com/alandtse/renderdoc/blob/dev/docs/CONTRIBUTING.md
 -->
 
 ## Description

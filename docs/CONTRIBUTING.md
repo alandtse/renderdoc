@@ -10,11 +10,11 @@ If you're a regular contributor or if you have a larger amount of code to change
 
 I want to ensure that anyone can contribute to RenderDoc with only the next bug to worry about. For that reason the project has adopted the [contributor covenent](CODE_OF_CONDUCT.md) as a code of conduct to be enforced for anyone taking part in RenderDoc development. This includes any comments on issues or any public discussion e.g. in the #renderdoc IRC channel or discord server.
 
-If you have any queries or concerns in this regard you can get in touch with me [directly over email](mailto:baldurk@baldurk.org).
+If you have any queries or concerns in this regard you can [open an issue](https://github.com/alandtse/renderdoc/issues) on this fork's repository.
 
 ## Use of LLMs / "AI"
 
-Strictly no use whatsoever of LLMs or any similar technology is allowed for any code contributed to RenderDoc. There are no exceptions to this rule.
+**This fork permits the use of LLMs and AI-assisted tooling in development.** This is the primary policy difference from the upstream RenderDoc project, which prohibits LLM use entirely. Contributors to this fork may use LLM assistance when writing code or documentation.
 
 ## Acceptable use of RenderDoc
 
@@ -22,9 +22,33 @@ RenderDoc is a tool intended for debugging your own projects and programs, those
 
 ## Copyright / Contributor License Agreement
 
-Any code you submit will become part of the repository and be distributed under the [RenderDoc license](../LICENSE.md). By submitting code to the project you agree that the code is your own work and that you have the ability to give it to the project.
+This repository contains code under two licenses. Files inherited from upstream RenderDoc remain under their original **MIT License** ([LICENSE.md](../LICENSE.md)) — do not modify their copyright notices. Fork-specific contributions (new files and modifications made in this fork) are licensed under **GPL-3.0-or-later** ([COPYING](../COPYING)).
 
-You also agree by submitting your code that you grant all transferrable rights to the code to the project maintainer, including for example re-licensing the code, modifying the code, distributing in source or binary forms. Specifically this includes a requirement that you assign copyright to the project maintainer (Baldur Karlsson). For this reason, do not modify any copyright statements in files in any PRs.
+By submitting a pull request you accept the [Contributor License Agreement](../CONTRIBUTOR_LICENSE_AGREEMENT.md). **Read the full CLA before contributing.** Key points:
+
+- Your contribution is licensed **GPL-3.0-or-later** in this fork.
+- For upstream reintegration you pre-authorize a **copyright assignment to Baldur Karlsson** (the upstream maintainer), which is what the upstream project requires. This is not merely a license grant — it transfers copyright ownership. Once assigned, the upstream maintainer may use the contribution in any way copyright law permits, including proprietary use.
+- This assignment is exercisable only while the upstream project remains OSI-licensed, and is irrevocable for any contribution already incorporated.
+
+New fork-specific files should carry a GPL-3.0-or-later header with your copyright.
+
+## Upstream-first policy
+
+**Before opening a PR here, consider whether your change is eligible for upstream.**
+
+If your change:
+- Does not use LLM-assisted development, **and**
+- Follows all [upstream contribution guidelines](https://github.com/baldurk/renderdoc/blob/v1.x/docs/CONTRIBUTING.md), **and**
+- Is not fork-specific (e.g. not tied to a fork-only feature)
+
+then submit it to [baldurk/renderdoc](https://github.com/baldurk/renderdoc) directly. Changes accepted upstream will flow into this fork automatically via the daily sync. This keeps the fork diff small and maximises the benefit to the broader RenderDoc community.
+
+Submit here only if:
+- Your change uses LLM tooling and cannot go upstream, **or**
+- It builds on a fork-specific feature, **or**
+- Upstream has declined or is unlikely to accept it.
+
+When in doubt, try upstream first. You can always submit here if it is declined.
 
 ## Contributing information
 

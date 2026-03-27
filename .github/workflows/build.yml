@@ -1,0 +1,113 @@
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to attach artifacts to (e.g. v1.44-fork.1)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-2025
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 5
+
+    - name: Install VSSetup
+      run: Install-Module VSSetup -Scope CurrentUser -Force
+      shell: powershell
+
+    - name: Download optional 3rdparty extras
+      run: |
+        curl https://renderdoc.org/qrenderdoc_3rdparty.zip -O
+        7z x qrenderdoc_3rdparty.zip
+
+    - name: Set up Visual Studio tools
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Inject distribution defines
+      run: |
+        $version = "${{ inputs.tag }}" -replace '^v', ''
+        # Directory.Build.props is auto-imported by MSBuild for all projects in the tree.
+        # Injecting via ItemDefinitionGroup/<ClCompile> is the correct way to prepend
+        # preprocessor defines without overwriting the project's existing %(PreprocessorDefinitions).
+        @"
+        <?xml version="1.0" encoding="utf-8"?>
+        <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+          <ItemDefinitionGroup>
+            <ClCompile>
+              <PreprocessorDefinitions>DISTRIBUTION_NAME=&quot;alandtse/renderdoc&quot;;DISTRIBUTION_VERSION=&quot;${version}&quot;;DISTRIBUTION_CONTACT=&quot;https://github.com/alandtse/renderdoc/releases&quot;;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+            </ClCompile>
+          </ItemDefinitionGroup>
+        </Project>
+        "@ | Out-File -FilePath Directory.Build.props -Encoding utf8
+      shell: powershell
+
+    - name: Build
+      run: msbuild.exe renderdoc.sln "/m" "/p:Configuration=Release" "/p:Platform=x64" "/p:PlatformToolset=v143"
+      shell: powershell
+
+    - name: Package
+      run: |
+        $tag = "${{ inputs.tag }}"
+        $dir = Get-ChildItem -Directory | Where-Object { $_.Name -match '^x64' } | Select-Object -First 1
+        Compress-Archive -Path "$($dir.FullName)/Release/*" -DestinationPath "renderdoc-windows-x64-${tag}.zip"
+      shell: powershell
+
+    - name: Upload to release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ inputs.tag }}
+        files: renderdoc-windows-x64-${{ inputs.tag }}.zip
+
+  linux:
+    name: Linux x64
+    runs-on: ubuntu-22.04
+    env:
+      QT_SELECT: qt5
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 5
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libx11-dev mesa-common-dev libgl1-mesa-dev qtbase5-dev \
+          libqt5svg5-dev libqt5x11extras5-dev libxcb-keysyms1-dev libx11-xcb-dev g++
+
+    - name: Build
+      run: |
+        VERSION="${{ inputs.tag }}"
+        VERSION="${VERSION#v}"
+        mkdir build && pushd build
+        cmake -DCMAKE_BUILD_TYPE=Release \
+          -DDISTRIBUTION_NAME="alandtse/renderdoc" \
+          -DDISTRIBUTION_VERSION="${VERSION}" \
+          -DDISTRIBUTION_CONTACT="https://github.com/alandtse/renderdoc/releases" \
+          ..
+        make -j$(nproc)
+        popd
+
+    - name: Package
+      run: |
+        TAG="${{ inputs.tag }}"
+        tar -czf "renderdoc-linux-x64-${TAG}.tar.gz" -C build/bin .
+
+    - name: Upload to release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ inputs.tag }}
+        files: renderdoc-linux-x64-${{ inputs.tag }}.tar.gz

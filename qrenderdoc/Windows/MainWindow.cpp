@@ -1262,7 +1262,7 @@ bool MainWindow::HandleMismatchedVersions()
         QMessageBox::Yes | QMessageBox::No);
 
     if(res == QMessageBox::Yes)
-      QDesktopServices::openUrl(QUrl(lit("https://renderdoc.org/builds")));
+      QDesktopServices::openUrl(QUrl(lit("https://github.com/alandtse/renderdoc/releases")));
 
     SetUpdateAvailable();
 #endif
@@ -2936,7 +2936,8 @@ void MainWindow::on_action_Source_on_GitHub_triggered()
 
 void MainWindow::on_action_Build_Release_Downloads_triggered()
 {
-  QDesktopServices::openUrl(QUrl::fromUserInput(lit("https://renderdoc.org/builds")));
+  QDesktopServices::openUrl(
+      QUrl::fromUserInput(lit("https://github.com/alandtse/renderdoc/releases")));
 }
 
 void MainWindow::on_action_Show_Tips_triggered()
@@ -3017,7 +3018,7 @@ void MainWindow::on_action_Check_for_Updates_triggered()
                                   "Would you like to open the builds list in a browser?"));
 
         if(res == QMessageBox::Yes)
-          QDesktopServices::openUrl(lit("https://renderdoc.org/builds"));
+          QDesktopServices::openUrl(lit("https://github.com/alandtse/renderdoc/releases"));
         break;
       }
       case UpdateResult::Latest:

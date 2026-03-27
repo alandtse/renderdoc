@@ -4,10 +4,11 @@ on:
   push:
     branches:
       - v1.x
+      - dev
       - ci-test
   pull_request:
     branches:
-      - v1.x
+      - dev
 
 defaults:
   run:
@@ -47,8 +48,7 @@ jobs:
       run: |
         git log --oneline > a
         grep -v 7a064ae a > b
-        head -n 100 b > c
-        cp c commits
+        head -n 100 b > commits
         echo "Checking last 100 commits:"
         cat commits
         cut -d ' ' -f2- commits > commit_msgs
@@ -369,7 +369,10 @@ jobs:
       run: |
         mkdir build
         pushd build
-        CC=${{ matrix.cc }} CXX=${{ matrix.cxx }} cmake -DCMAKE_BUILD_TYPE=${{ matrix.type }} ..
+        CC=${{ matrix.cc }} CXX=${{ matrix.cxx }} cmake -DCMAKE_BUILD_TYPE=${{ matrix.type }} \
+          -DDISTRIBUTION_NAME="alandtse/renderdoc" \
+          -DDISTRIBUTION_CONTACT="https://github.com/alandtse/renderdoc/releases" \
+          ..
         make -j2
         popd
     - if: matrix.type == 'Debug'
@@ -462,7 +465,10 @@ jobs:
       run: |
         mkdir build
         pushd build
-        cmake -DENABLE_METAL=On -DCMAKE_BUILD_TYPE=${{ matrix.type }} ..
+        cmake -DENABLE_METAL=On -DCMAKE_BUILD_TYPE=${{ matrix.type }} \
+          -DDISTRIBUTION_NAME="alandtse/renderdoc" \
+          -DDISTRIBUTION_CONTACT="https://github.com/alandtse/renderdoc/releases" \
+          ..
         make -j2
         popd
     - if: matrix.type == 'Debug'

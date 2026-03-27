@@ -1,20 +1,30 @@
 <p align="center"><img src="https://user-images.githubusercontent.com/661798/36482670-f81601c0-170b-11e8-8adb-2365b346ac27.png" /></p>
 
-[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
-[![CI](https://github.com/baldurk/renderdoc/actions/workflows/ci.yml/badge.svg?branch=v1.x&event=push)](https://github.com/baldurk/renderdoc/actions)
+> **This is an unofficial community fork of [RenderDoc](https://github.com/baldurk/renderdoc) maintained at [alandtse/renderdoc](https://github.com/alandtse/renderdoc).**
+>
+> This fork has two purposes. First, it permits the **appropriate** use of LLMs and AI-assisted tooling in development — the one policy where it departs from upstream. AI-generated code submitted without review or understanding is not acceptable, and contributors must be able to explain their changes. All other upstream contribution guidelines are followed as closely as possible.
+>
+> Second, it is structured to protect the community's contributions. Fork-specific code is GPL-3.0-or-later, ensuring it remains open source regardless of any future change in upstream's direction. Reintegration with upstream is the goal if upstream policy allows, but if upstream ever moves away from an open-source license, no further contributions from this fork will be eligible for integration. See [COPYING](COPYING) and the [Contributor License Agreement](CONTRIBUTOR_LICENSE_AGREEMENT.md) for details.
+>
+> This fork tracks upstream `v1.x` closely. Issues arising from fork-specific changes must be reported here and **not** to the upstream project — do not file issues or pull requests related to this fork's changes against the upstream repository.
+
+[![Upstream license: MIT](https://img.shields.io/badge/upstream%20license-MIT-green.svg)](LICENSE.md)
+[![Fork additions: GPL v3](https://img.shields.io/badge/fork%20additions-GPL--3.0--or--later-blue.svg)](COPYING)
+[![CI](https://github.com/alandtse/renderdoc/actions/workflows/ci.yml/badge.svg?branch=dev&event=push)](https://github.com/alandtse/renderdoc/actions)
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-v2.0%20adopted-ff69b4.svg)](docs/CODE_OF_CONDUCT.md) 
 
-RenderDoc is a frame-capture based graphics debugger, currently available for Vulkan, D3D11, D3D12, OpenGL, and OpenGL ES development on Windows, Linux, Android, and Nintendo Switch&trade;. It is completely open-source under the MIT license.
+RenderDoc is a frame-capture based graphics debugger, currently available for Vulkan, D3D11, D3D12, OpenGL, and OpenGL ES development on Windows, Linux, Android, and Nintendo Switch&trade;. It is completely open-source.
 
 RenderDoc is intended for debugging your own programs only. Any discussion of capturing programs that you did not create will not be allowed in any official public RenderDoc setting, including the issue tracker, discord, or via email. For example this includes capturing commercial games that you did not create, or capturing Google Maps or Google Earth. Note: Capturing projects you created that use a third party engine like Unreal or Unity, or open source and free projects is completely fine and supported.
 
-If you have any questions, suggestions or problems or you can [create an issue](https://github.com/baldurk/renderdoc/issues/new/choose) here on github, [email me directly](mailto:baldurk@baldurk.org) or come into [IRC](https://webchat.oftc.net/?channels=renderdoc) or [Discord](https://discord.gg/ahq6yRB) to discuss it.
+If you have any questions, suggestions or problems with this fork you can [create an issue](https://github.com/alandtse/renderdoc/issues/new/choose) here on github. For questions about upstream RenderDoc, see the [upstream repository](https://github.com/baldurk/renderdoc).
 
 To install on windows run the appropriate installer for your OS ([64-bit](https://renderdoc.org/stable/latest/RenderDoc_latest_64.msi) | [32-bit](https://renderdoc.org/stable/latest/RenderDoc_latest_32.msi)) or download the portable zip from the [builds page](https://renderdoc.org/builds). The 64-bit windows build fully supports capturing from 32-bit programs. On linux only 64-bit x86 is supported - there is a precompiled [binary tarball](https://renderdoc.org/stable/latest/renderdoc_latest.tar.gz) available, or your distribution may package it. If not you can [build from source](docs/CONTRIBUTING/Compiling.md).
 
 * **Downloads**: Stable and nightly builds: https://renderdoc.org/builds ( [Symbol server](https://renderdoc.org/symbols) )
 * **Documentation**: [HTML online](https://renderdoc.org/docs), [CHM in builds](https://renderdoc.org/docs/renderdoc.chm), [Videos](https://www.youtube.com/user/baldurkarlsson)
-* **Contact**: [baldurk@baldurk.org](mailto:baldurk@baldurk.org), [#renderdoc on OFTC IRC](https://webchat.oftc.net/?channels=renderdoc), [Discord server](https://discord.gg/ahq6yRB)
+* **Fork issues**: [alandtse/renderdoc issue tracker](https://github.com/alandtse/renderdoc/issues)
+* **Upstream contact**: [baldurk@baldurk.org](mailto:baldurk@baldurk.org), [#renderdoc on OFTC IRC](https://webchat.oftc.net/?channels=renderdoc), [Discord server](https://discord.gg/ahq6yRB)
 * **Code of Conduct**: [Contributor Covenant](docs/CODE_OF_CONDUCT.md)
 * **Information for contributors**: [All contribution information](docs/CONTRIBUTING.md), [Compilation instructions](docs/CONTRIBUTING/Compiling.md)
 * **Community extensions**: [Extensions repository](https://github.com/baldurk/renderdoc-contrib)
@@ -60,7 +70,12 @@ There is also a great presentation by [@Icetigris](https://twitter.com/Icetigris
 License
 --------------
 
-RenderDoc is released under the MIT license, see [LICENSE.md](LICENSE.md) for full text as well as 3rd party library acknowledgements.
+This repository contains code under two licenses:
+
+- **Files from upstream RenderDoc** are licensed under the **MIT License** — see [LICENSE.md](LICENSE.md). This covers all files present in [upstream](https://github.com/baldurk/renderdoc) at the time they were incorporated; their copyright notices must not be modified.
+- **Fork-specific contributions** (new files and modifications made in this fork) are licensed under **GPL-3.0-or-later** — see [COPYING](COPYING).
+
+By contributing to this fork you accept the [Contributor License Agreement](CONTRIBUTOR_LICENSE_AGREEMENT.md). For upstream reintegration, the CLA pre-authorizes a **copyright assignment to Baldur Karlsson** — the upstream project requires full copyright assignment, not merely a license. Read the full CLA before contributing.
 
 Compiling
 ---------
