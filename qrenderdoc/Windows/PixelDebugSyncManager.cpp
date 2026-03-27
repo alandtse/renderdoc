@@ -472,6 +472,85 @@ bool PixelDebugSyncManager::varsAreDivergent(const ShaderVariable &a, const Shad
   return false;
 }
 
+// ---- IPixelDebugSyncManager (Python/agent-facing interface) -----------------
+
+rdcarray<uint32_t> PixelDebugSyncManager::GetAllGroupIds() const
+{
+  rdcarray<uint32_t> ids;
+  for(const SyncGroup &g : m_Groups)
+    ids.push_back(g.id);
+  return ids;
+}
+
+SyncGroupInfo PixelDebugSyncManager::GetGroupInfo(uint32_t groupId) const
+{
+  const SyncGroup *g = getGroup(groupId);
+  if(!g)
+    return SyncGroupInfo();
+
+  SyncGroupInfo info;
+  info.id = g->id;
+  info.name = rdcstr(g->name.toUtf8().constData());
+  info.viewerCount = (uint32_t)g->viewers.size();
+  info.threshold = g->threshold;
+  info.ignoreIntDivergence = g->ignoreIntDivergence;
+  info.autoBreakOnDivergence = g->autoBreakOnDivergence;
+  info.autoBreakOnVarDivergence = g->autoBreakOnVarDivergence;
+  return info;
+}
+
+rdcarray<SyncVarDiff> PixelDebugSyncManager::ComputeDiffs(uint32_t groupId) const
+{
+  QList<VarDiff> qtDiffs = computeDiffs(groupId);
+
+  rdcarray<SyncVarDiff> result;
+  result.reserve(qtDiffs.size());
+
+  for(const VarDiff &vd : qtDiffs)
+  {
+    SyncVarDiff out;
+    out.path = rdcstr(vd.path.toUtf8().constData());
+    for(const ShaderVariable &v : vd.values)
+      out.values.push_back(v);
+    for(bool p : vd.present)
+      out.present.push_back(p ? 1u : 0u);
+    out.divergent = vd.divergent;
+    for(bool c : vd.componentDivergent)
+      out.componentDivergent.push_back(c ? 1u : 0u);
+    result.push_back(out);
+  }
+
+  return result;
+}
+
+bool PixelDebugSyncManager::HasBranchDivergence(uint32_t groupId) const
+{
+  return hasBranchDivergence(groupId);
+}
+
+void PixelDebugSyncManager::SetThreshold(uint32_t groupId, float threshold)
+{
+  setThreshold(groupId, threshold);
+}
+
+void PixelDebugSyncManager::SetIgnoreIntDivergence(uint32_t groupId, bool ignore)
+{
+  setIgnoreIntDivergence(groupId, ignore);
+}
+
+rdcstr PixelDebugSyncManager::FormatVarValue(const ShaderVariable &var) const
+{
+  return rdcstr(formatVarValue(var).toUtf8().constData());
+}
+
+bool PixelDebugSyncManager::VarsAreDivergent(const ShaderVariable &a, const ShaderVariable &b,
+                                             float threshold) const
+{
+  return varsAreDivergent(a, b, threshold);
+}
+
+// ---- private helpers --------------------------------------------------------
+
 void PixelDebugSyncManager::collectLeafPaths(const ShaderVariable &var, const QString &prefix,
                                              QList<QString> &paths)
 {

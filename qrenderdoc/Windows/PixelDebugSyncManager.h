@@ -50,7 +50,7 @@ struct SyncGroup
 
 // Manages one or more SyncGroups. Lives as a singleton per application (owned by QApplication).
 // ShaderViewer registers/unregisters itself; PixelDebugSyncPanel observes via signals.
-class PixelDebugSyncManager : public QObject
+class PixelDebugSyncManager : public QObject, public IPixelDebugSyncManager
 {
   Q_OBJECT
 
@@ -89,6 +89,17 @@ public:
   // Comparison helpers used by PixelDebugSyncPanel
   QList<VarDiff> computeDiffs(uint32_t groupId) const;
   bool hasBranchDivergence(uint32_t groupId) const;
+
+  // IPixelDebugSyncManager implementation (Python/agent-facing interface)
+  rdcarray<uint32_t> GetAllGroupIds() const override;
+  SyncGroupInfo GetGroupInfo(uint32_t groupId) const override;
+  rdcarray<SyncVarDiff> ComputeDiffs(uint32_t groupId) const override;
+  bool HasBranchDivergence(uint32_t groupId) const override;
+  void SetThreshold(uint32_t groupId, float threshold) override;
+  void SetIgnoreIntDivergence(uint32_t groupId, bool ignore) override;
+  rdcstr FormatVarValue(const ShaderVariable &var) const override;
+  bool VarsAreDivergent(const ShaderVariable &a, const ShaderVariable &b,
+                        float threshold) const override;
 
   // Emit stepCompleted (and branchDivergenceDetected if applicable) for the given group.
   // Used by ShaderViewer after bulk-stepping operations that bypass the normal notify path.

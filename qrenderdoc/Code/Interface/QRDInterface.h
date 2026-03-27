@@ -103,7 +103,7 @@ struct CaptureSettings
   VARIANT_CAST(CaptureSettings);
 
   DOCUMENT(R"(The settings for the capture.
-  
+
 :type: renderdoc.CaptureOptions
 )");
   CaptureOptions options;
@@ -1426,6 +1426,148 @@ protected:
 
 DECLARE_REFLECTION_STRUCT(IPixelDebugSyncPanel);
 
+DOCUMENT(R"(Summary information about one synchronised pixel-debugger group, returned by
+:meth:`PixelDebugSyncManager.GetGroupInfo`.
+)");
+struct SyncGroupInfo
+{
+  DOCUMENT("The numeric group ID.");
+  uint32_t id = 0;
+
+  DOCUMENT("Human-readable name for this group.");
+  rdcstr name;
+
+  DOCUMENT("Number of :class:`ShaderViewer` instances currently in this group.");
+  uint32_t viewerCount = 0;
+
+  DOCUMENT("Maximum absolute difference before a float component is flagged as divergent.");
+  float threshold = 0.001f;
+
+  DOCUMENT("``True`` if integer and boolean differences are suppressed.");
+  bool ignoreIntDivergence = false;
+
+  DOCUMENT("``True`` if a run-forward operation stops when viewers reach different instructions.");
+  bool autoBreakOnDivergence = true;
+
+  DOCUMENT("``True`` if a run-forward operation stops when any variable becomes newly divergent.");
+  bool autoBreakOnVarDivergence = false;
+
+  bool operator==(const SyncGroupInfo &o) const { return id == o.id; }
+  bool operator<(const SyncGroupInfo &o) const { return id < o.id; }
+};
+
+DECLARE_REFLECTION_STRUCT(SyncGroupInfo);
+
+DOCUMENT(R"(A single variable's values compared across all viewers in a sync group, returned as
+part of the list from :meth:`PixelDebugSyncManager.ComputeDiffs`.
+)");
+struct SyncVarDiff
+{
+  DOCUMENT("Dot-separated path identifying the variable, e.g. ``\"myStruct.color.x\"``.");
+  rdcstr path;
+
+  DOCUMENT(R"(Value of the variable in each viewer, in group order. When the corresponding entry
+in :data:`present` is ``0`` the variable was absent from that viewer and this entry is a
+zero-initialised placeholder.
+)");
+  rdcarray<ShaderVariable> values;
+
+  DOCUMENT("Per-viewer presence flags (``1`` = variable exists in that viewer, ``0`` = absent).");
+  rdcarray<uint32_t> present;
+
+  DOCUMENT("``True`` if any viewer pair exceeds the configured threshold for this variable.");
+  bool divergent = false;
+
+  DOCUMENT(R"(Per-component divergence flags (``1`` = component diverges across at least one
+viewer pair, ``0`` = component agrees). Empty for struct-parent nodes; one entry per component
+for leaf variables.
+)");
+  rdcarray<uint32_t> componentDivergent;
+
+  bool operator==(const SyncVarDiff &o) const { return path == o.path; }
+  bool operator<(const SyncVarDiff &o) const { return path < o.path; }
+};
+
+DECLARE_REFLECTION_STRUCT(SyncVarDiff);
+
+DOCUMENT(R"(Read-only interface to the singleton manager that co-ordinates lock-step stepping of
+multiple pixel-shader debugger windows and exposes divergence data to Python scripts and AI agents.
+
+Retrieved with :meth:`CaptureContext.GetPixelDebugSyncManager`.
+)");
+struct IPixelDebugSyncManager
+{
+  DOCUMENT(R"(Return the IDs of all current sync groups.
+
+:return: List of group IDs.
+:rtype: List[int]
+)");
+  virtual rdcarray<uint32_t> GetAllGroupIds() const = 0;
+
+  DOCUMENT(R"(Return a summary of the given group.
+
+:param int groupId: The group to query.
+:return: Group info, or a default-constructed object with ``id == 0`` if the group does not exist.
+:rtype: SyncGroupInfo
+)");
+  virtual SyncGroupInfo GetGroupInfo(uint32_t groupId) const = 0;
+
+  DOCUMENT(R"(Compute the per-variable diff across all viewers in the given group.
+
+:param int groupId: The group to query.
+:return: List of variable diffs, one entry per leaf variable path present in any viewer.
+:rtype: List[SyncVarDiff]
+)");
+  virtual rdcarray<SyncVarDiff> ComputeDiffs(uint32_t groupId) const = 0;
+
+  DOCUMENT(R"(Return whether any two viewers in the group are currently at different instructions.
+
+:param int groupId: The group to query.
+:return: ``True`` if a branch divergence is detected.
+:rtype: bool
+)");
+  virtual bool HasBranchDivergence(uint32_t groupId) const = 0;
+
+  DOCUMENT(R"(Set the float divergence threshold for the given group.
+
+:param int groupId: The group to configure.
+:param float threshold: Maximum absolute difference before a float component is flagged.
+)");
+  virtual void SetThreshold(uint32_t groupId, float threshold) = 0;
+
+  DOCUMENT(R"(Set whether integer and boolean differences are suppressed for the given group.
+
+:param int groupId: The group to configure.
+:param bool ignore: ``True`` to ignore integer/boolean differences.
+)");
+  virtual void SetIgnoreIntDivergence(uint32_t groupId, bool ignore) = 0;
+
+  DOCUMENT(R"(Format a :class:`~renderdoc.ShaderVariable` value as a human-readable string.
+
+:param ~renderdoc.ShaderVariable var: The variable to format.
+:return: Formatted string.
+:rtype: str
+)");
+  virtual rdcstr FormatVarValue(const ShaderVariable &var) const = 0;
+
+  DOCUMENT(R"(Return whether two :class:`~renderdoc.ShaderVariable` values are divergent.
+
+:param ~renderdoc.ShaderVariable a: First variable.
+:param ~renderdoc.ShaderVariable b: Second variable.
+:param float threshold: Maximum absolute difference for float components.
+:return: ``True`` if the variables differ beyond the threshold.
+:rtype: bool
+)");
+  virtual bool VarsAreDivergent(const ShaderVariable &a, const ShaderVariable &b,
+                                float threshold) const = 0;
+
+protected:
+  IPixelDebugSyncManager() = default;
+  ~IPixelDebugSyncManager() = default;
+};
+
+DECLARE_REFLECTION_STRUCT(IPixelDebugSyncManager);
+
 DOCUMENT(R"(A descriptor viewer window.
 
 This window is retrieved by calling :meth:`CaptureContext.ViewDescriptorStore` or :meth:`CaptureContext.ViewDescriptors`.
@@ -2518,7 +2660,7 @@ Use :meth:`RemoveDependentFiles` to remove the embedded file data.
 
   DOCUMENT(R"(Removes the dependent files storage from the capture i.e. shader debug files.
 
-The files will be still be considered to be referenced by the capture and could be re-embedded 
+The files will be still be considered to be referenced by the capture and could be re-embedded
 by calling :meth:`EmbedDependentFiles`.
 
 .. warning::
@@ -2767,6 +2909,13 @@ on the UI thread.
 :rtype: bool
 )");
   virtual bool HasPixelDebugSyncPanel() = 0;
+
+  DOCUMENT(R"(Retrieve the singleton :class:`PixelDebugSyncManager`.
+
+:return: The sync manager.
+:rtype: PixelDebugSyncManager
+)");
+  virtual IPixelDebugSyncManager *GetPixelDebugSyncManager() = 0;
 
   DOCUMENT("Raise the current :class:`EventBrowser`, showing it in the default place if needed.");
   virtual void ShowEventBrowser() = 0;

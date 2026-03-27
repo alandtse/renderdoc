@@ -182,6 +182,7 @@ TEMPLATE_ARRAY_INSTANTIATE(rdcarray, ExtensionMetadata)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, DialogButton)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, RemoteHost)
 TEMPLATE_ARRAY_INSTANTIATE_PTR(rdcarray, ICaptureViewer)
+TEMPLATE_ARRAY_INSTANTIATE(rdcarray, SyncVarDiff)
 
 // unignore the function from above
 %rename("%s") IReplayManager::BlockInvoke;

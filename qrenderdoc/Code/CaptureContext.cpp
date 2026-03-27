@@ -2433,6 +2433,11 @@ IResourceInspector *CaptureContext::GetResourceInspector()
   return m_ResourceInspector;
 }
 
+IPixelDebugSyncManager *CaptureContext::GetPixelDebugSyncManager()
+{
+  return PixelDebugSyncManager::instance();
+}
+
 IPixelDebugSyncPanel *CaptureContext::GetPixelDebugSyncPanel()
 {
   if(m_SyncPanel)

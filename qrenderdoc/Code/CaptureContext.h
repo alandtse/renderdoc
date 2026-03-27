@@ -228,6 +228,7 @@ public:
   IPythonShell *GetPythonShell() override;
   IResourceInspector *GetResourceInspector() override;
   IPixelDebugSyncPanel *GetPixelDebugSyncPanel() override;
+  IPixelDebugSyncManager *GetPixelDebugSyncManager() override;
 
   bool HasEventBrowser() override { return m_EventBrowser != NULL; }
   bool HasAPIInspector() override { return m_APIInspector != NULL; }

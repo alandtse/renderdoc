@@ -728,6 +728,10 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
   {
     return InvokeRetFunction<IPixelDebugSyncPanel *>(&ICaptureContext::GetPixelDebugSyncPanel);
   }
+  virtual IPixelDebugSyncManager *GetPixelDebugSyncManager() override
+  {
+    return InvokeRetFunction<IPixelDebugSyncManager *>(&ICaptureContext::GetPixelDebugSyncManager);
+  }
   virtual bool HasEventBrowser() override
   {
     return InvokeRetFunction<bool>(&ICaptureContext::HasEventBrowser);
