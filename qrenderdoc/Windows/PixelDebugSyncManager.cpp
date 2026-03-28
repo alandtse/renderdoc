@@ -258,77 +258,103 @@ QList<VarDiff> PixelDebugSyncManager::computeDiffs(uint32_t groupId) const
       diff.values.push_back(v);
     }
 
-    // Flag divergent if any pair exceeds the threshold (or one viewer lacks the variable).
-    // If ignoreIntDivergence is set, skip non-float types entirely.
-    // Unknown type (e.g. DXBC temp registers) is treated as float
-    VarType firstType = (!diff.values.isEmpty() && diff.values[0].type == VarType::Unknown)
-                            ? VarType::Float
-                            : diff.values[0].type;
+    // Find the first present viewer's type for the ignoreIntDivergence gate.
+    // Unknown type (e.g. DXBC temp registers) is treated as float.
+    VarType firstType = VarType::Float;
+    for(int i = 0; i < diff.present.size(); i++)
+    {
+      if(diff.present[i])
+      {
+        firstType = (diff.values[i].type == VarType::Unknown) ? VarType::Float : diff.values[i].type;
+        break;
+      }
+    }
     bool isIntOrBool =
-        !diff.values.isEmpty() &&
-        (firstType != VarType::Float && firstType != VarType::Half && firstType != VarType::Double);
+        firstType != VarType::Float && firstType != VarType::Half && firstType != VarType::Double;
+
+    // Flag divergent if any present pair exceeds the threshold.
+    // Comparing all pairs (not just vs viewer 0) catches divergence when viewer 0 is absent.
     if(!g->ignoreIntDivergence || !isIntOrBool)
     {
-      for(int i = 1; i < diff.values.size(); i++)
+      for(int i = 0; i < diff.values.size() && !diff.divergent; i++)
       {
-        // Only flag as divergent when both viewers have the variable and its values differ.
-        // Variables absent from one viewer are skipped to avoid false positives from viewers
-        // being at different points in the shader execution.
-        if(diff.present[0] && diff.present[i] &&
-           varsAreDivergent(diff.values[0], diff.values[i], g->threshold))
+        if(!diff.present[i])
+          continue;
+        for(int j = i + 1; j < diff.values.size(); j++)
         {
-          diff.divergent = true;
-          break;
+          if(!diff.present[j])
+            continue;
+          if(varsAreDivergent(diff.values[i], diff.values[j], g->threshold))
+          {
+            diff.divergent = true;
+            break;
+          }
         }
       }
     }
 
     // Compute per-component divergence for leaf variables (no sub-members).
-    // componentDivergent[c] is true when component c differs across any viewer pair.
-    if(diff.divergent && !diff.values.isEmpty() && diff.values[0].members.empty())
+    // Use the first present viewer for shape/count; compare all present pairs.
+    int firstPresent = -1;
+    for(int i = 0; i < diff.present.size(); i++)
     {
-      uint32_t count = (uint32_t)diff.values[0].rows * (uint32_t)diff.values[0].columns;
+      if(diff.present[i])
+      {
+        firstPresent = i;
+        break;
+      }
+    }
+    if(diff.divergent && firstPresent >= 0 && diff.values[firstPresent].members.empty())
+    {
+      const ShaderVariable &ref = diff.values[firstPresent];
+      uint32_t count = (uint32_t)ref.rows * (uint32_t)ref.columns;
       diff.componentDivergent.clear();
       for(uint32_t ci = 0; ci < count; ci++)
         diff.componentDivergent.push_back(false);
 
-      for(int vi = 1; vi < diff.values.size(); vi++)
+      bool allFlagged = false;
+      for(int i = firstPresent; i < diff.values.size() && !allFlagged; i++)
       {
-        if(!diff.present[0] || !diff.present[vi])
+        if(!diff.present[i])
+          continue;
+        for(int j = i + 1; j < diff.values.size() && !allFlagged; j++)
         {
-          // One viewer lacks the variable entirely — flag all components.
-          for(bool &c : diff.componentDivergent)
-            c = true;
-          break;
-        }
-
-        const ShaderVariable &a = diff.values[0];
-        const ShaderVariable &b = diff.values[vi];
-
-        VarType typeA = (a.type == VarType::Unknown) ? VarType::Float : a.type;
-        VarType typeB = (b.type == VarType::Unknown) ? VarType::Float : b.type;
-
-        if(a.rows != b.rows || a.columns != b.columns || typeA != typeB)
-        {
-          for(bool &c : diff.componentDivergent)
-            c = true;
-          break;
-        }
-
-        switch(typeA)
-        {
-          case VarType::Float:
-          case VarType::Half:
-          case VarType::Double:
-            for(uint32_t ci = 0; ci < count; ci++)
-              if(fabsf(a.value.f32v[ci] - b.value.f32v[ci]) > g->threshold)
-                diff.componentDivergent[(int)ci] = true;
+          if(!diff.present[j])
+            continue;
+          const ShaderVariable &a = diff.values[i];
+          const ShaderVariable &b = diff.values[j];
+          VarType typeA = (a.type == VarType::Unknown) ? VarType::Float : a.type;
+          VarType typeB = (b.type == VarType::Unknown) ? VarType::Float : b.type;
+          if(a.rows != b.rows || a.columns != b.columns || typeA != typeB)
+          {
+            for(bool &c : diff.componentDivergent)
+              c = true;
+            allFlagged = true;
             break;
-          default:
-            for(uint32_t ci = 0; ci < count; ci++)
-              if(a.value.u32v[ci] != b.value.u32v[ci])
-                diff.componentDivergent[(int)ci] = true;
-            break;
+          }
+          switch(typeA)
+          {
+            case VarType::Double:
+              for(uint32_t ci = 0; ci < count; ci++)
+                if(fabs(a.value.f64v[ci] - b.value.f64v[ci]) > (double)g->threshold)
+                  diff.componentDivergent[(int)ci] = true;
+              break;
+            case VarType::Half:
+              for(uint32_t ci = 0; ci < count; ci++)
+                if(fabsf((float)a.value.f16v[ci] - (float)b.value.f16v[ci]) > g->threshold)
+                  diff.componentDivergent[(int)ci] = true;
+              break;
+            case VarType::Float:
+              for(uint32_t ci = 0; ci < count; ci++)
+                if(fabsf(a.value.f32v[ci] - b.value.f32v[ci]) > g->threshold)
+                  diff.componentDivergent[(int)ci] = true;
+              break;
+            default:
+              for(uint32_t ci = 0; ci < count; ci++)
+                if(a.value.u32v[ci] != b.value.u32v[ci])
+                  diff.componentDivergent[(int)ci] = true;
+              break;
+          }
         }
       }
     }
