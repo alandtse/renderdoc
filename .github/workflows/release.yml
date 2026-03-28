@@ -110,7 +110,6 @@ jobs:
         tag_name: ${{ steps.version.outputs.tag }}
         name: ${{ steps.version.outputs.tag }}
         body_path: RELEASE_NOTES.md
-        prerelease: true
 
   build:
     name: Build artifacts
