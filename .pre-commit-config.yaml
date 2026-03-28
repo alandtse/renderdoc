@@ -1,10 +1,38 @@
 ci:
   autofix_prs: true
-  autofix_commit_msg: 'style: apply clang-format fixes'
+  autofix_commit_msg: 'style: apply pre-commit fixes'
   autoupdate_schedule: monthly
   autoupdate_commit_msg: 'chore: update pre-commit hook versions'
 
 repos:
+  - repo: local
+    hooks:
+      - id: commit-msg-length
+        name: Commit subject line max 72 characters
+        language: system
+        entry: bash util/check_commit_msg.sh
+        stages: [commit-msg]
+
+      - id: no-pragma-once-in-cpp
+        name: No pragma once in .cpp files
+        language: system
+        entry: bash util/check_pragma_once.sh
+        files: ^(qrenderdoc|renderdoc|renderdoccmd|renderdocshim)/.*\.cpp$
+        exclude: /(3rdparty|official)/
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        types_or: [c, c++, objective-c]
+        files: ^(qrenderdoc|renderdoc|renderdoccmd|renderdocshim|util/test/demos)/
+        exclude: /(3rdparty|official)/
+      - id: end-of-file-fixer
+        types_or: [c, c++, objective-c]
+        files: ^(qrenderdoc|renderdoc|renderdoccmd|renderdocshim|util/test/demos)/
+        exclude: /(3rdparty|official)/
+      - id: check-added-large-files
+
   - repo: https://github.com/pre-commit/mirrors-clang-format
     rev: v15.0.7
     hooks:

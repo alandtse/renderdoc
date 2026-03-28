@@ -82,9 +82,13 @@ namespace DIA2
 {
 struct Module
 {
-  Module(IDiaDataSource *src = NULL, IDiaSession *sess = NULL) : pSource(src), pSession(sess) {}
+  Module(IDiaDataSource *src = NULL, IDiaSession *sess = NULL)
+      : pSource(src), pSession(sess), pdbCopyPath()
+  {
+  }
   IDiaDataSource *pSource;
   IDiaSession *pSession;
+  rdcwstr pdbCopyPath;
 };
 
 rdcarray<Module> modules;
@@ -151,6 +155,27 @@ rdcstr LookupModule(const rdcstr &modName, GUID guid, DWORD age)
 
 rdcwstr msdiapath = L"msdia140.dll";
 
+rdcwstr CreatePDBTempCopy(const rdcwstr &pdbPath)
+{
+  wchar_t tempPath[MAX_PATH + 1] = {};
+  DWORD pathLen = GetTempPathW(MAX_PATH, tempPath);
+
+  if(pathLen == 0 || pathLen > MAX_PATH)
+    return rdcwstr();
+
+  wchar_t tempFile[MAX_PATH + 1] = {};
+  if(GetTempFileNameW(tempPath, L"rdp", 0, tempFile) == 0)
+    return rdcwstr();
+
+  if(CopyFileW(pdbPath.c_str(), tempFile, FALSE) == FALSE)
+  {
+    DeleteFileW(tempFile);
+    return rdcwstr();
+  }
+
+  return tempFile;
+}
+
 HRESULT MakeDiaDataSource(IDiaDataSource **source)
 {
   // might need to CoInitialize on this thread
@@ -208,21 +233,32 @@ uint32_t GetModule(const rdcwstr &pdbName, GUID guid, DWORD age)
 {
   Module m(NULL, NULL);
 
+  rdcwstr pdbToLoad = pdbName;
+  rdcwstr pdbTempCopy = CreatePDBTempCopy(pdbName);
+
+  if(pdbTempCopy.c_str() != NULL)
+  {
+    pdbToLoad = pdbTempCopy;
+    m.pdbCopyPath = pdbTempCopy;
+  }
+
   HRESULT hr = MakeDiaDataSource(&m.pSource);
 
   if(FAILED(hr))
   {
+    if(m.pdbCopyPath.c_str() != NULL)
+      DeleteFileW(m.pdbCopyPath.c_str());
     return 0;
   }
 
   // check this pdb is the one we expected from our chunk
   if(guid.Data1 == 0 && guid.Data2 == 0)
   {
-    hr = m.pSource->loadDataFromPdb(pdbName.c_str());
+    hr = m.pSource->loadDataFromPdb(pdbToLoad.c_str());
   }
   else
   {
-    hr = m.pSource->loadAndValidateDataFromPdb(pdbName.c_str(), &guid, 0, age);
+    hr = m.pSource->loadAndValidateDataFromPdb(pdbToLoad.c_str(), &guid, 0, age);
   }
 
   if(SUCCEEDED(hr))
@@ -231,7 +267,9 @@ uint32_t GetModule(const rdcwstr &pdbName, GUID guid, DWORD age)
     hr = m.pSource->openSession(&m.pSession);
     if(FAILED(hr))
     {
-      m.pSource->Release();
+      SAFE_RELEASE(m.pSource);
+      if(m.pdbCopyPath.c_str() != NULL)
+        DeleteFileW(m.pdbCopyPath.c_str());
       return 0;
     }
 
@@ -240,7 +278,10 @@ uint32_t GetModule(const rdcwstr &pdbName, GUID guid, DWORD age)
     return uint32_t(modules.size());
   }
 
-  m.pSource->Release();
+  SAFE_RELEASE(m.pSource);
+
+  if(m.pdbCopyPath.c_str() != NULL)
+    DeleteFileW(m.pdbCopyPath.c_str());
 
   return 0;
 }
@@ -251,6 +292,11 @@ void Release(uint32_t module)
   {
     SAFE_RELEASE(modules[module - 1].pSession);
     SAFE_RELEASE(modules[module - 1].pSource);
+    if(modules[module - 1].pdbCopyPath.c_str() != NULL)
+    {
+      DeleteFileW(modules[module - 1].pdbCopyPath.c_str());
+      modules[module - 1].pdbCopyPath = rdcwstr();
+    }
   }
 }
 
@@ -905,14 +951,6 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
     m.size = chunk->size;
     m.moduleId = 0;
 
-    if(pdbIgnores.contains(m.name))
-    {
-      RDCWARN("Not attempting to get symbols for %s", m.name.c_str());
-
-      modules.push_back(m);
-      continue;
-    }
-
     // get default pdb (this also looks up symbol server etc)
     // Always done in unicode
     rdcstr defaultPdb = DIA2::LookupModule(m.name, chunk->guid, chunk->age);
@@ -948,6 +986,44 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
 
     rdcstr pdbName = defaultPdb;
 
+    bool ignored = pdbIgnores.contains(m.name);
+    bool allowManualSearch = interactive && !ignored;
+    bool ignoredHasPdb = false;
+
+    if(ignored)
+    {
+      if(defaultPdb != "" && FileIO::exists(defaultPdb))
+      {
+        ignoredHasPdb = true;
+      }
+      else
+      {
+        rdcstr baseName = get_basename(defaultPdb);
+        if(baseName == "")
+          baseName = get_basename(m.name);
+
+        for(size_t pathIdx = 0; pathIdx < pdbRememberedPaths.size(); pathIdx++)
+        {
+          rdcstr check = pdbRememberedPaths[pathIdx] + "\\" + baseName;
+          if(FileIO::exists(check))
+          {
+            pdbName = check;
+            ignoredHasPdb = true;
+            failed = false;
+            break;
+          }
+        }
+      }
+
+      if(!ignoredHasPdb)
+      {
+        RDCWARN("Not attempting to get symbols for %s", m.name.c_str());
+
+        modules.push_back(m);
+        continue;
+      }
+    }
+
     int fallbackIdx = -1;
 
     while(m.moduleId == 0)
@@ -967,7 +1043,7 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
 
           // prompt for new pdbName, unless it's renderdoc or dbghelp, or we're non-interactive
           if(pdbName.contains("renderdoc.") || pdbName.contains("dbghelp.") ||
-             pdbName.contains("symsrv.") || !interactive)
+             pdbName.contains("symsrv.") || !allowManualSearch)
             pdbName = "";
           else
             pdbName = pdbBrowse(pdbName);
@@ -984,6 +1060,9 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
 
       if(m.moduleId == 0)
       {
+        if(!allowManualSearch && fallbackIdx >= (int)pdbRememberedPaths.size())
+          break;
+
         failed = true;
       }
       else
@@ -1009,8 +1088,8 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
       if(m.name.contains("renderdoc.") || m.name.contains("dbghelp.") || m.name.contains("symsrv."))
         continue;
 
-      // if we're not interactive, just continue
-      if(!interactive)
+      // if we're not interactive or this module was already ignored, just continue
+      if(!interactive || ignored)
         continue;
 
       rdcstr text = StringFormat::Fmt("Do you want to permanently ignore this file?\nPath: %s",
