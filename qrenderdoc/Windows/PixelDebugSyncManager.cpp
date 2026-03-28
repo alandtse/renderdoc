@@ -432,9 +432,11 @@ QString PixelDebugSyncManager::formatVarValue(const ShaderVariable &var)
   {
     switch(type)
     {
-      case VarType::Float:
+      case VarType::Double: parts.push_back(QString::number(var.value.f64v[i], 'g', 6)); break;
       case VarType::Half:
-      case VarType::Double:
+        parts.push_back(QString::number((double)(float)var.value.f16v[i], 'g', 6));
+        break;
+      case VarType::Float:
         parts.push_back(QString::number((double)var.value.f32v[i], 'g', 6));
         break;
       case VarType::SInt: parts.push_back(QString::number(var.value.s32v[i])); break;
@@ -476,9 +478,21 @@ bool PixelDebugSyncManager::varsAreDivergent(const ShaderVariable &a, const Shad
 
   switch(type)
   {
-    case VarType::Float:
-    case VarType::Half:
     case VarType::Double:
+      for(uint32_t i = 0; i < count; i++)
+      {
+        if(fabs(a.value.f64v[i] - b.value.f64v[i]) > (double)threshold)
+          return true;
+      }
+      break;
+    case VarType::Half:
+      for(uint32_t i = 0; i < count; i++)
+      {
+        if(fabsf((float)a.value.f16v[i] - (float)b.value.f16v[i]) > threshold)
+          return true;
+      }
+      break;
+    case VarType::Float:
       for(uint32_t i = 0; i < count; i++)
       {
         if(fabsf(a.value.f32v[i] - b.value.f32v[i]) > threshold)

@@ -2946,29 +2946,15 @@ void ShaderViewer::runToDivergence(bool forward)
     else
       applyBackwardsChange();
 
-    size_t targetIdx = m_CurrentStateIdx;
+    uint32_t targetStep = CurrentStep();
 
-    // Advance all peer viewers to the same state index without calling updateDebugState on each.
+    // Advance all peer viewers to the same step without calling updateDebugState on each.
+    // Use CurrentStep()/syncStep() which coordinate on stepIndex, not the per-viewer array index.
     for(ShaderViewer *peer : peers)
     {
       if(!peer->m_Trace || peer->m_States.empty())
         continue;
-      peer->m_VariablesChanged.clear();
-      while(peer->m_CurrentStateIdx != targetIdx)
-      {
-        if(peer->m_CurrentStateIdx < targetIdx)
-        {
-          if(peer->IsLastState())
-            break;
-          peer->applyForwardsChange();
-        }
-        else
-        {
-          if(peer->IsFirstState())
-            break;
-          peer->applyBackwardsChange();
-        }
-      }
+      peer->syncStep(targetStep);
     }
 
     // Stop on new branch divergence when the option is enabled.

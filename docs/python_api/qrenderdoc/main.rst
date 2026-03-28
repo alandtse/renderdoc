@@ -59,6 +59,6 @@ Pixel Debug Sync
 .. autoclass:: qrenderdoc.SyncVarDiff
   :members:
 
-.. autoclass:: qrenderdoc.IPixelDebugSyncManager
+.. autoclass:: qrenderdoc.PixelDebugSyncManager
   :members:
 
