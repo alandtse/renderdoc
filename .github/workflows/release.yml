@@ -61,7 +61,7 @@ jobs:
         # Exclude upstream-sync merges; check whether any releasable commits exist.
         RELEASABLE=$(echo "$SUBJECTS" | \
           grep -E '^(feat|fix|perf|refactor|revert|docs|test|chore)(\(.+\))?!?:' | \
-          grep -vE '^chore\(upstream-sync\)')
+          grep -vE '^chore\(upstream-sync\)') || true
 
         if [ -z "$RELEASABLE" ]; then
           echo "released=false" >> "$GITHUB_OUTPUT"
