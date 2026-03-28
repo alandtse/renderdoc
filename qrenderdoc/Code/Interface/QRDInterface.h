@@ -2957,6 +2957,10 @@ place if needed.
   DOCUMENT(
       "Raise the current :class:`ResourceInspector`, showing it in the default place if needed.");
   virtual void ShowResourceInspector() = 0;
+  DOCUMENT(
+      "Raise the current :class:`PixelDebugSyncPanel`, showing it in the default place if "
+      "needed.");
+  virtual void ShowPixelDebugSyncPanel() = 0;
 
   DOCUMENT(R"(Show a new :class:`ShaderViewer` window, showing an editable view of a given shader.
 

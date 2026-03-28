@@ -205,7 +205,7 @@ void PixelDebugSyncPanel::onGroupListChanged()
 void PixelDebugSyncPanel::onGroupUpdated(uint32_t groupId)
 {
   if(groupId == selectedGroupId())
-    refreshDiffTable(groupId);
+    onGroupListChanged();
 }
 
 void PixelDebugSyncPanel::onStepCompleted(uint32_t groupId)

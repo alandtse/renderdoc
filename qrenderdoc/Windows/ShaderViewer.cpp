@@ -1660,20 +1660,28 @@ void ShaderViewer::syncButtonContextMenu(const QPoint &pos)
       QObject::connect(remove, &QAction::triggered, this, &ShaderViewer::leaveSyncGroup);
 
       QAction *unlist = menu.addAction(tr("Remove others from group"));
-      QObject::connect(unlist, &QAction::triggered, [this, g]() {
-        for(ShaderViewer *viewer : g->viewers)
-        {
+      QObject::connect(unlist, &QAction::triggered, [this]() {
+        const SyncGroup *sg = PixelDebugSyncManager::instance()->getGroup(m_SyncGroupId);
+        if(!sg)
+          return;
+        QList<ShaderViewer *> others;
+        for(ShaderViewer *viewer : sg->viewers)
           if(viewer != this)
-            viewer->leaveSyncGroup();
-        }
+            others.push_back(viewer);
+        for(ShaderViewer *viewer : others)
+          viewer->leaveSyncGroup();
       });
 
       menu.addSeparator();
       QAction *closeGroup = menu.addAction(tr("Close sync group"));
-      QObject::connect(closeGroup, &QAction::triggered, [g]() {
+      uint32_t capturedGroupId = m_SyncGroupId;
+      QObject::connect(closeGroup, &QAction::triggered, [capturedGroupId]() {
+        const SyncGroup *sg = PixelDebugSyncManager::instance()->getGroup(capturedGroupId);
+        if(!sg)
+          return;
         // Copy viewer list before deferring — closing any viewer (including 'this') would destroy
         // the QMenu while we are still inside its exec() event loop, causing a crash.
-        QList<ShaderViewer *> toClose = g->viewers;
+        QList<ShaderViewer *> toClose = sg->viewers;
         QTimer::singleShot(0, [toClose]() {
           for(ShaderViewer *viewer : toClose)
             ToolWindowManager::closeToolWindow(viewer->Widget());
@@ -5888,7 +5896,8 @@ RDTreeWidgetItem *ShaderViewer::makeDebugVariableNode(const ShaderVariable &v, r
     QString fullPath = QString(basename);
     for(const QString &dp : m_DivergentPaths)
     {
-      if(dp == fullPath || dp.startsWith(fullPath + lit(".")) || fullPath.startsWith(dp + lit(".")))
+      if(dp == fullPath || dp.startsWith(fullPath + lit(".")) || dp.startsWith(fullPath + lit("[")) ||
+         fullPath.startsWith(dp + lit(".")) || fullPath.startsWith(dp + lit("[")))
       {
         node->setBackgroundColor(QColor(255, 140, 0, 80));
         break;
@@ -6295,7 +6304,7 @@ void ShaderViewer::RunForward()
   if(m_SyncGroupId != ~0U)
   {
     const SyncGroup *sg = PixelDebugSyncManager::instance()->getGroup(m_SyncGroupId);
-    if(sg && (sg->autoBreakOnDivergence || sg->autoBreakOnVarDivergence))
+    if(sg && sg->viewers.size() >= 2 && (sg->autoBreakOnDivergence || sg->autoBreakOnVarDivergence))
     {
       runToDivergence(true);
       return;
@@ -6915,8 +6924,14 @@ QString ShaderViewer::syncDiffTooltipSuffix(const SourceVariableMapping &mapping
       pe.val = formatComp(d.values[vi], ci);
       if(thisType == VarType::Float || thisType == VarType::Half || thisType == VarType::Double)
       {
-        float delta = thisVar.value.f32v[ci] - d.values[vi].value.f32v[ci];
-        pe.delta = QString::number((double)delta, 'g', 4);
+        double delta;
+        if(thisType == VarType::Double)
+          delta = thisVar.value.f64v[ci] - d.values[vi].value.f64v[ci];
+        else if(thisType == VarType::Half)
+          delta = (double)(float)thisVar.value.f16v[ci] - (double)(float)d.values[vi].value.f16v[ci];
+        else
+          delta = (double)thisVar.value.f32v[ci] - (double)d.values[vi].value.f32v[ci];
+        pe.delta = QString::number(delta, 'g', 4);
       }
       cd.peers.push_back(pe);
     }

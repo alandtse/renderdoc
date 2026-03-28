@@ -845,6 +845,10 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
   {
     InvokeVoidFunction(&ICaptureContext::ShowResourceInspector);
   }
+  virtual void ShowPixelDebugSyncPanel() override
+  {
+    InvokeVoidFunction(&ICaptureContext::ShowPixelDebugSyncPanel);
+  }
   virtual IShaderViewer *EditShader(ResourceId id, ShaderStage stage, const rdcstr &entryPoint,
                                     const rdcstrpairs &files, KnownShaderTool knownTool,
                                     ShaderEncoding shaderEncoding, ShaderCompileFlags flags,

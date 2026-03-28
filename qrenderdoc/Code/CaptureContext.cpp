@@ -2525,6 +2525,12 @@ void CaptureContext::ShowResourceInspector()
   m_MainWindow->showResourceInspector();
 }
 
+void CaptureContext::ShowPixelDebugSyncPanel()
+{
+  GetPixelDebugSyncPanel();
+  RaiseDockWindow(m_SyncPanel->Widget());
+}
+
 IShaderViewer *CaptureContext::EditShader(ResourceId id, ShaderStage stage, const rdcstr &entryPoint,
                                           const rdcstrpairs &files, KnownShaderTool knownTool,
                                           ShaderEncoding shaderEncoding, ShaderCompileFlags flags,

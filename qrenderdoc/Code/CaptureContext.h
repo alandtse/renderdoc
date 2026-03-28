@@ -261,6 +261,7 @@ public:
   void ShowTimelineBar() override;
   void ShowPythonShell() override;
   void ShowResourceInspector() override;
+  void ShowPixelDebugSyncPanel() override;
 
   IShaderViewer *EditShader(ResourceId id, ShaderStage stage, const rdcstr &entryPoint,
                             const rdcstrpairs &files, KnownShaderTool knownTool,
