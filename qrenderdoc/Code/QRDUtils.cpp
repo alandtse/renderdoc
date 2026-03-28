@@ -73,6 +73,14 @@ rdcstr DoStringise(const uint16_t &el)
   return QString::number(el);
 }
 
+// identity conversion — renderdoc.dll does not export DoStringise<rdcstr> so
+// qrenderdoc must provide its own (identical) definition for linking.
+template <>
+rdcstr DoStringise(const rdcstr &el)
+{
+  return el;
+}
+
 // these ones we do by hand as it requires formatting
 template <>
 rdcstr DoStringise(const ResourceId &el)

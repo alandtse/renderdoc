@@ -53,6 +53,7 @@
 #include "Windows/MainWindow.h"
 #include "Windows/PerformanceCounterViewer.h"
 #include "Windows/PipelineState/PipelineStateViewer.h"
+#include "Windows/PixelDebugSyncPanel.h"
 #include "Windows/PixelHistoryView.h"
 #include "Windows/PythonShell.h"
 #include "Windows/ResourceInspector.h"
@@ -2432,6 +2433,23 @@ IResourceInspector *CaptureContext::GetResourceInspector()
   return m_ResourceInspector;
 }
 
+IPixelDebugSyncManager *CaptureContext::GetPixelDebugSyncManager()
+{
+  return PixelDebugSyncManager::instance();
+}
+
+IPixelDebugSyncPanel *CaptureContext::GetPixelDebugSyncPanel()
+{
+  if(m_SyncPanel)
+    return m_SyncPanel;
+
+  m_SyncPanel = new PixelDebugSyncPanel(*this, m_MainWindow->Widget());
+  m_SyncPanel->setObjectName(lit("pixelDebugSyncPanel"));
+  setupDockWindow(m_SyncPanel, true);
+
+  return m_SyncPanel;
+}
+
 void CaptureContext::ShowEventBrowser()
 {
   m_MainWindow->showEventBrowser();
@@ -2505,6 +2523,12 @@ void CaptureContext::ShowPythonShell()
 void CaptureContext::ShowResourceInspector()
 {
   m_MainWindow->showResourceInspector();
+}
+
+void CaptureContext::ShowPixelDebugSyncPanel()
+{
+  GetPixelDebugSyncPanel();
+  RaiseDockWindow(m_SyncPanel->Widget());
 }
 
 IShaderViewer *CaptureContext::EditShader(ResourceId id, ShaderStage stage, const rdcstr &entryPoint,
@@ -2749,6 +2773,10 @@ QWidget *CaptureContext::CreateBuiltinWindow(const rdcstr &objectName)
   {
     return GetPerformanceCounterViewer()->Widget();
   }
+  else if(objectName == "pixelDebugSyncPanel")
+  {
+    return GetPixelDebugSyncPanel()->Widget();
+  }
 
   return NULL;
 }
@@ -2781,6 +2809,8 @@ void CaptureContext::BuiltinWindowClosed(QWidget *window)
     m_PythonShell = NULL;
   else if(m_ResourceInspector && m_ResourceInspector->Widget() == window)
     m_ResourceInspector = NULL;
+  else if(m_SyncPanel && m_SyncPanel->Widget() == window)
+    m_SyncPanel = NULL;
   else if(m_PerformanceCounterViewer && m_PerformanceCounterViewer->Widget() == window)
     m_PerformanceCounterViewer = NULL;
   else

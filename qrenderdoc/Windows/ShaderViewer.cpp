@@ -23,10 +23,13 @@
  ******************************************************************************/
 
 #include "ShaderViewer.h"
+#include <QCheckBox>
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QFontDatabase>
 #include <QHBoxLayout>
 #include <QKeyEvent>
+#include <QLabel>
 #include <QListWidget>
 #include <QMenu>
 #include <QMouseEvent>
@@ -35,10 +38,13 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QShortcut>
+#include <QTimer>
 #include <QToolTip>
+#include <QVBoxLayout>
 #include "Code/Resources.h"
 #include "Code/ScintillaSyntax.h"
 #include "Widgets/Extended/RDLabel.h"
+#include "Widgets/Extended/RDTreeWidget.h"
 #include "Widgets/FindReplace.h"
 #include "scintilla/include/SciLexer.h"
 #include "scintilla/include/qt/ScintillaEdit.h"
@@ -554,6 +560,7 @@ void ShaderViewer::debugShader(const ShaderReflection *shader, ResourceId pipeli
   m_Trace = trace;
   m_Stage = ShaderStage::Vertex;
   m_DebugContext = debugContext;
+  m_DebugEventId = m_Ctx.CurEvent();
 
   // no recompilation happening, hide that group
   ui->compilationGroup->hide();
@@ -596,8 +603,8 @@ void ShaderViewer::debugShader(const ShaderReflection *shader, ResourceId pipeli
         QStringList targetNames;
         for(int i = 0; i < targets.count(); i++)
         {
-          QString target = targets[i];
-          targetNames << QString(targets[i]);
+          QString target = ToQStr(targets[i]);
+          targetNames << target;
 
           if(i == 0)
           {
@@ -628,6 +635,7 @@ void ShaderViewer::debugShader(const ShaderReflection *shader, ResourceId pipeli
   }
 
   updateWindowTitle();
+  updateSyncUI();
 
   // we always want to highlight words/registers
   QObject::connect(m_DisassemblyView, &ScintillaEdit::buttonReleased, this,
@@ -907,6 +915,14 @@ void ShaderViewer::debugShader(const ShaderReflection *shader, ResourceId pipeli
                        [this]() { runTo(~0U, false, ShaderEvents::GeneratedNanOrInf); });
       backwardsMenu->addAction(act);
 
+      act = MakeExecuteAction(
+          tr("Run backwards to &Divergence"), Icons::control_reverse_blue(),
+          tr("Run backwards (stepping all sync group viewers) until any variable value or branch "
+             "diverges between viewers, or the start of the shader is reached"),
+          QKeySequence());
+      QObject::connect(act, &QAction::triggered, [this]() { runToDivergence(false); });
+      backwardsMenu->addAction(act);
+
       backwardsMenu->addSeparator();
 
       act = MakeExecuteAction(tr("Step backwards &Over"), Icons::control_reverse_blue(),
@@ -973,6 +989,14 @@ void ShaderViewer::debugShader(const ShaderReflection *shader, ResourceId pipeli
                        [this]() { runTo(~0U, true, ShaderEvents::GeneratedNanOrInf); });
       forwardsMenu->addAction(act);
 
+      act = MakeExecuteAction(
+          tr("Run forwards to &Divergence"), Icons::control_play_blue(),
+          tr("Run forwards (stepping all sync group viewers) until any variable value or branch "
+             "diverges between viewers, or the end of the shader is reached"),
+          QKeySequence());
+      QObject::connect(act, &QAction::triggered, [this]() { runToDivergence(true); });
+      forwardsMenu->addAction(act);
+
       forwardsMenu->addSeparator();
 
       act = MakeExecuteAction(tr("Step forwards &Over"), Icons::control_play_blue(),
@@ -998,6 +1022,41 @@ void ShaderViewer::debugShader(const ShaderReflection *shader, ResourceId pipeli
       forwardsMenu->addAction(act);
 
       ui->execForwards->setMenu(forwardsMenu);
+    }
+
+    // Sync debuggers button — opens/raises the PixelDebugSyncPanel and joins a group.
+    {
+      m_SyncBtn = new QToolButton(this);
+      m_SyncBtn->setAutoRaise(true);
+      m_SyncBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+      m_SyncBtn->setIcon(Icons::connect());
+      m_SyncBtn->setText(tr("Sync Debuggers"));
+      m_SyncBtn->setCheckable(true);
+      m_SyncBtn->setChecked(false);
+      m_SyncBtn->setToolTip(
+          tr("Add this debugger to a sync group. Synced debuggers step in lock-step and highlight "
+             "divergent variable values."));
+      m_SyncBtn->setContextMenuPolicy(Qt::CustomContextMenu);
+      QObject::connect(m_SyncBtn, &QToolButton::customContextMenuRequested, this,
+                       &ShaderViewer::syncButtonContextMenu);
+
+      ui->toolbar->layout()->addWidget(m_SyncBtn);
+
+      QObject::connect(m_SyncBtn, &QToolButton::toggled, [this](bool checked) {
+        if(checked)
+        {
+          // Automatically find or create the group scoped to this shader+event.
+          PixelDebugSyncManager *mgr = PixelDebugSyncManager::instance();
+          uint32_t groupId = mgr->findOrCreateGroupForViewer(this);
+          joinSyncGroup(groupId);
+        }
+        else
+        {
+          leaveSyncGroup();
+          if(m_SyncBtn)
+            m_SyncBtn->setChecked(false);
+        }
+      });
     }
 
     for(ScintillaEdit *edit : m_Scintillas)
@@ -1040,6 +1099,7 @@ void ShaderViewer::debugShader(const ShaderReflection *shader, ResourceId pipeli
     ui->accessedResources->installEventFilter(this);
     ui->debugVars->installEventFilter(this);
     ui->watch->installEventFilter(this);
+    ui->sourceVars->installEventFilter(this);
 
     cacheResources();
 
@@ -1246,8 +1306,8 @@ void ShaderViewer::debugShader(const ShaderReflection *shader, ResourceId pipeli
       for(const SigParameter &s : m_ShaderDetails->inputSignature)
       {
         QString name = s.varName.isEmpty()
-                           ? QString(s.semanticName)
-                           : QFormatStr("%1 (%2)").arg(s.varName).arg(s.semanticName);
+                           ? ToQStr(s.semanticName)
+                           : QFormatStr("%1 (%2)").arg(s.varName).arg(ToQStr(s.semanticName));
         if(s.semanticName.isEmpty())
           name = s.varName;
 
@@ -1274,8 +1334,8 @@ void ShaderViewer::debugShader(const ShaderReflection *shader, ResourceId pipeli
       for(const SigParameter &s : m_ShaderDetails->outputSignature)
       {
         QString name = s.varName.isEmpty()
-                           ? QString(s.semanticName)
-                           : QFormatStr("%1 (%2)").arg(s.varName).arg(s.semanticName);
+                           ? ToQStr(s.semanticName)
+                           : QFormatStr("%1 (%2)").arg(s.varName).arg(ToQStr(s.semanticName));
         if(s.semanticName.isEmpty())
           name = s.varName;
 
@@ -1468,22 +1528,173 @@ QAction *ShaderViewer::MakeExecuteAction(QString name, const QIcon &icon, QStrin
 
 void ShaderViewer::updateWindowTitle()
 {
-  if(m_ShaderDetails)
+  if(!m_ShaderDetails)
+    return;
+
+  QString shaderName = m_Ctx.GetResourceNameUnsuffixed(m_ShaderDetails->resourceId);
+
+  // On D3D12, get the shader name from the pipeline rather than the shader itself
+  // for the benefit of D3D12 which doesn't have separate shader objects
+  if(m_Ctx.CurPipelineState().IsCaptureD3D12())
+    shaderName = QFormatStr("%1 %2")
+                     .arg(m_Ctx.GetResourceNameUnsuffixed(m_Pipeline))
+                     .arg(m_Ctx.CurPipelineState().Abbrev(m_ShaderDetails->stage));
+
+  QString title;
+  if(m_Trace)
+    title = QFormatStr("Debugging %1 - %2").arg(shaderName).arg(m_DebugContext);
+  else
+    title = shaderName;
+
+  if(m_SyncGroupId != ~0U)
   {
-    QString shaderName = m_Ctx.GetResourceNameUnsuffixed(m_ShaderDetails->resourceId);
-
-    // On D3D12, get the shader name from the pipeline rather than the shader itself
-    // for the benefit of D3D12 which doesn't have separate shader objects
-    if(m_Ctx.CurPipelineState().IsCaptureD3D12())
-      shaderName = QFormatStr("%1 %2")
-                       .arg(m_Ctx.GetResourceNameUnsuffixed(m_Pipeline))
-                       .arg(m_Ctx.CurPipelineState().Abbrev(m_ShaderDetails->stage));
-
-    if(m_Trace)
-      setWindowTitle(QFormatStr("Debugging %1 - %2").arg(shaderName).arg(m_DebugContext));
+    PixelDebugSyncManager *mgr = PixelDebugSyncManager::instance();
+    QString serial = mgr->serialLabelForViewer(m_SyncGroupId, this);
+    if(!serial.isEmpty())
+      title = QFormatStr("[SYNC %1] %2").arg(serial).arg(title);
+    else if(const SyncGroup *g = mgr->getGroup(m_SyncGroupId))
+      title = QFormatStr("[SYNC %1] %2").arg(g->name).arg(title);
     else
-      setWindowTitle(shaderName);
+      title = QFormatStr("[SYNC] %1").arg(title);
   }
+
+  setWindowTitle(title);
+}
+
+void ShaderViewer::updateSyncButtonTooltip()
+{
+  if(!m_SyncBtn)
+    return;
+
+  if(m_SyncGroupId == ~0U)
+  {
+    m_SyncBtn->setToolTip(
+        tr("Add this debugger to a sync group. Synced debuggers step in lock-step and highlight "
+           "divergent variable values."));
+    return;
+  }
+
+  const SyncGroup *g = PixelDebugSyncManager::instance()->getGroup(m_SyncGroupId);
+  if(!g)
+  {
+    m_SyncBtn->setToolTip(tr("Synced with unknown group."));
+    return;
+  }
+
+  QStringList members;
+  PixelDebugSyncManager *mgr2 = PixelDebugSyncManager::instance();
+  for(ShaderViewer *viewer : g->viewers)
+  {
+    QString serial = mgr2->serialLabelForViewer(m_SyncGroupId, viewer);
+    QString label = serial.isEmpty() ? viewer->windowTitle() : serial;
+    if(viewer == this)
+      label += tr(" (this)");
+    members << label;
+  }
+
+  m_SyncBtn->setToolTip(tr("Sync group %1 (%2).\nMembers: %3")
+                            .arg(g->name)
+                            .arg(g->viewers.size())
+                            .arg(members.join(QLatin1String(", "))));
+}
+
+void ShaderViewer::updateSyncUI()
+{
+  updateWindowTitle();
+  updateSyncButtonTooltip();
+  if(m_SyncBtn)
+    m_SyncBtn->setChecked(m_SyncGroupId != ~0U);
+}
+
+void ShaderViewer::syncButtonContextMenu(const QPoint &pos)
+{
+  if(!m_SyncBtn)
+    return;
+
+  QMenu menu(this);
+
+  // "Go to debug event" — navigate the main timeline back to the event that was being debugged.
+  if(m_DebugEventId != 0)
+  {
+    QAction *gotoAct = menu.addAction(tr("Go to debug event (%1)").arg(m_DebugEventId));
+    QObject::connect(gotoAct, &QAction::triggered,
+                     [this]() { m_Ctx.SetEventID({}, m_DebugEventId, m_DebugEventId); });
+  }
+
+  // Always offer to open the standalone sync panel when in a sync group.
+  if(m_SyncGroupId != ~0U)
+  {
+    QAction *settingsAct = menu.addAction(tr("Show Sync Panel"));
+    QObject::connect(settingsAct, &QAction::triggered, [this]() {
+      IPixelDebugSyncPanel *panel = m_Ctx.GetPixelDebugSyncPanel();
+      if(panel)
+      {
+        QWidget *w = panel->Widget();
+        if(w->isVisible())
+          m_Ctx.RaiseDockWindow(w);
+        else
+          m_Ctx.AddDockWindow(w, DockReference::MainToolArea, NULL);
+      }
+    });
+    menu.addSeparator();
+  }
+
+  if(m_SyncGroupId == ~0U)
+  {
+    menu.addAction(tr("Not in a sync group"))->setEnabled(false);
+  }
+  else
+  {
+    const SyncGroup *g = PixelDebugSyncManager::instance()->getGroup(m_SyncGroupId);
+    if(g && !g->viewers.isEmpty())
+    {
+      for(ShaderViewer *viewer : g->viewers)
+      {
+        QString name = viewer == this ? tr("(this)") : viewer->windowTitle();
+        QAction *act = menu.addAction(name);
+        QObject::connect(act, &QAction::triggered,
+                         [viewer]() { ToolWindowManager::raiseToolWindow(viewer->Widget()); });
+      }
+      menu.addSeparator();
+      QAction *remove = menu.addAction(tr("Leave sync group"));
+      QObject::connect(remove, &QAction::triggered, this, &ShaderViewer::leaveSyncGroup);
+
+      QAction *unlist = menu.addAction(tr("Remove others from group"));
+      QObject::connect(unlist, &QAction::triggered, [this]() {
+        const SyncGroup *sg = PixelDebugSyncManager::instance()->getGroup(m_SyncGroupId);
+        if(!sg)
+          return;
+        QList<ShaderViewer *> others;
+        for(ShaderViewer *viewer : sg->viewers)
+          if(viewer != this)
+            others.push_back(viewer);
+        for(ShaderViewer *viewer : others)
+          viewer->leaveSyncGroup();
+      });
+
+      menu.addSeparator();
+      QAction *closeGroup = menu.addAction(tr("Close sync group"));
+      uint32_t capturedGroupId = m_SyncGroupId;
+      QObject::connect(closeGroup, &QAction::triggered, [capturedGroupId]() {
+        const SyncGroup *sg = PixelDebugSyncManager::instance()->getGroup(capturedGroupId);
+        if(!sg)
+          return;
+        // Copy viewer list before deferring — closing any viewer (including 'this') would destroy
+        // the QMenu while we are still inside its exec() event loop, causing a crash.
+        QList<ShaderViewer *> toClose = sg->viewers;
+        QTimer::singleShot(0, [toClose]() {
+          for(ShaderViewer *viewer : toClose)
+            ToolWindowManager::closeToolWindow(viewer->Widget());
+        });
+      });
+    }
+    else
+    {
+      menu.addAction(tr("No other viewers in group"))->setEnabled(false);
+    }
+  }
+
+  menu.exec(m_SyncBtn->mapToGlobal(pos));
 }
 
 void ShaderViewer::gotoSourceDebugging()
@@ -1629,6 +1840,9 @@ QVariantMap ShaderViewer::SaveEditor()
 
 ShaderViewer::~ShaderViewer()
 {
+  // Unregister from any active sync group so the manager doesn't hold a dangling pointer.
+  leaveSyncGroup();
+
   delete m_FindResults;
   m_FindResults = NULL;
 
@@ -2521,8 +2735,321 @@ bool ShaderViewer::step(bool forward, StepMode mode)
     updateDebugState();
   }
 
+  notifySyncManager();
+
   return true;
 }
+
+// ---- Sync group support -------------------------------------------------------
+
+void ShaderViewer::joinSyncGroup(uint32_t groupId)
+{
+  leaveSyncGroup();
+  m_SyncGroupId = groupId;
+  PixelDebugSyncManager::instance()->addViewerToGroup(groupId, this);
+  if(m_SyncBtn)
+    m_SyncBtn->setChecked(true);
+
+  // After every sync step, all peers have been driven to the same step.
+  // Call updateDebugState() again so divergence is computed against the now-correct peer state.
+  m_SyncStepConnection =
+      QObject::connect(PixelDebugSyncManager::instance(), &PixelDebugSyncManager::stepCompleted,
+                       this, [this](uint32_t gid) {
+                         if(gid == m_SyncGroupId)
+                         {
+                           updateDebugState();
+                           updateSyncStatusLabel();
+                         }
+                       });
+
+  // Sync expansion/collapse of High-level Variables across all viewers in the group.
+  m_SyncExpandedConnection =
+      QObject::connect(ui->sourceVars, &QTreeView::expanded, this, [this](const QModelIndex &) {
+        if(m_SyncExpanding || m_SyncGroupId == ~0U)
+          return;
+        QSet<uint> state;
+        ui->sourceVars->saveExpansion(state, 0);
+        const SyncGroup *sg = PixelDebugSyncManager::instance()->getGroup(m_SyncGroupId);
+        if(sg)
+        {
+          for(ShaderViewer *peer : sg->viewers)
+            if(peer != this)
+              peer->applySyncExpansion(state);
+        }
+      });
+  m_SyncCollapsedConnection =
+      QObject::connect(ui->sourceVars, &QTreeView::collapsed, this, [this](const QModelIndex &) {
+        if(m_SyncExpanding || m_SyncGroupId == ~0U)
+          return;
+        QSet<uint> state;
+        ui->sourceVars->saveExpansion(state, 0);
+        const SyncGroup *sg = PixelDebugSyncManager::instance()->getGroup(m_SyncGroupId);
+        if(sg)
+        {
+          for(ShaderViewer *peer : sg->viewers)
+            if(peer != this)
+              peer->applySyncExpansion(state);
+        }
+      });
+
+  updateSyncUI();
+}
+
+void ShaderViewer::leaveSyncGroup()
+{
+  if(m_SyncGroupId == ~0U)
+    return;
+  QObject::disconnect(m_SyncStepConnection);
+  QObject::disconnect(m_SyncExpandedConnection);
+  QObject::disconnect(m_SyncCollapsedConnection);
+  m_SyncStepConnection = {};
+  m_SyncExpandedConnection = {};
+  m_SyncCollapsedConnection = {};
+  m_DivergentPaths.clear();
+  m_DivergentComponents.clear();
+  m_LastWasDivergent = false;
+
+  if(m_SyncDiffPanel)
+  {
+    // removeToolWindow calls forceCloseToolWindow which already calls delete — do NOT delete here.
+    ui->docking->removeToolWindow(m_SyncDiffPanel);
+    m_SyncDiffPanel = NULL;
+    m_SyncStatusLabel = NULL;
+  }
+
+  // Guard against the (shutdown) case where the manager was destroyed before this viewer.
+  PixelDebugSyncManager *mgr = PixelDebugSyncManager::instance();
+  if(mgr)
+    mgr->removeViewer(this);
+  m_SyncGroupId = ~0U;
+  if(m_SyncBtn)
+    m_SyncBtn->setChecked(false);
+  updateSyncUI();
+}
+
+QString ShaderViewer::sourceNameForDebugPath(const QString &path) const
+{
+  if(!m_Trace || m_States.empty())
+    return {};
+
+  auto search = [&](const rdcarray<SourceVariableMapping> &vars) -> QString {
+    for(const SourceVariableMapping &m : vars)
+    {
+      for(const DebugVariableReference &r : m.variables)
+      {
+        if(r.type == DebugVariableType::Variable && QString(r.name) == path)
+          return QString(m.name);
+      }
+    }
+    return {};
+  };
+
+  // Per-instruction sourceVars take priority (they reflect the current scope).
+  QString result = search(GetCurrentInstInfo().sourceVars);
+  if(!result.isEmpty())
+    return result;
+  // Fall back to global trace sourceVars (always-visible variables such as inputs/constants).
+  return search(m_Trace->sourceVars);
+}
+
+void ShaderViewer::syncStep(uint32_t stepIndex)
+{
+  m_SyncStepping = true;
+  SetCurrentStep(stepIndex);
+  m_SyncStepping = false;
+}
+
+void ShaderViewer::syncDebugMode(bool sourceDebugging, bool intView, bool floatView)
+{
+  if(m_SyncMode)
+    return;
+
+  m_SyncMode = true;
+
+  if(sourceDebugging != isSourceDebugging())
+  {
+    if(sourceDebugging)
+      gotoSourceDebugging();
+    else
+      gotoDisassemblyDebugging();
+  }
+
+  if(intView != ui->intView->isChecked())
+    ui->intView->setChecked(intView);
+  if(floatView != ui->floatView->isChecked())
+    ui->floatView->setChecked(floatView);
+
+  updateDebugState();
+
+  m_SyncMode = false;
+}
+
+bool ShaderViewer::isIntView() const
+{
+  return ui->intView->isChecked();
+}
+
+bool ShaderViewer::isFloatView() const
+{
+  return ui->floatView->isChecked();
+}
+
+uint32_t ShaderViewer::GetCurrentInstruction() const
+{
+  if(m_States.empty())
+    return 0;
+  return GetCurrentState().nextInstruction;
+}
+
+void ShaderViewer::notifySyncManager()
+{
+  if(m_SyncGroupId != ~0U && !m_SyncStepping)
+    PixelDebugSyncManager::instance()->onViewerStepped(this);
+}
+
+void ShaderViewer::runToDivergence(bool forward)
+{
+  if(m_SyncGroupId == ~0U || !m_Trace || m_States.empty())
+    return;
+
+  PixelDebugSyncManager *mgr = PixelDebugSyncManager::instance();
+  const SyncGroup *g = mgr->getGroup(m_SyncGroupId);
+  if(!g || g->viewers.size() < 2)
+    return;
+
+  // Take a snapshot of peers so we don't have to re-query the group each iteration.
+  QList<ShaderViewer *> peers;
+  for(ShaderViewer *v : g->viewers)
+    if(v != this)
+      peers.push_back(v);
+
+  // Record which variable paths are already divergent before the run begins, and whether branch
+  // divergence is already present.  Only stop when NEW divergence appears beyond this baseline.
+  bool initialBranchDiv = mgr->hasBranchDivergence(m_SyncGroupId);
+  QSet<QString> initialDivPaths;
+  for(const VarDiff &d : mgr->computeDiffs(m_SyncGroupId))
+    if(d.divergent)
+      initialDivPaths.insert(d.path);
+
+  m_VariablesChanged.clear();
+
+  while(true)
+  {
+    if(forward && IsLastState())
+      break;
+    if(!forward && IsFirstState())
+      break;
+
+    // Advance this viewer one instruction (without triggering sync notifications).
+    if(forward)
+      applyForwardsChange();
+    else
+      applyBackwardsChange();
+
+    uint32_t targetStep = CurrentStep();
+
+    // Advance all peer viewers to the same step without calling updateDebugState on each.
+    // Use CurrentStep()/syncStep() which coordinate on stepIndex, not the per-viewer array index.
+    for(ShaderViewer *peer : peers)
+    {
+      if(!peer->m_Trace || peer->m_States.empty())
+        continue;
+      peer->syncStep(targetStep);
+    }
+
+    // Stop on new branch divergence when the option is enabled.
+    if(g->autoBreakOnDivergence && !initialBranchDiv && mgr->hasBranchDivergence(m_SyncGroupId))
+      break;
+
+    // Stop when a variable that was NOT in the initial divergent set becomes divergent.
+    if(g->autoBreakOnVarDivergence)
+    {
+      bool newValueDivergence = false;
+      for(const VarDiff &d : mgr->computeDiffs(m_SyncGroupId))
+      {
+        if(d.divergent && !initialDivPaths.contains(d.path))
+        {
+          newValueDivergence = true;
+          break;
+        }
+      }
+      if(newValueDivergence)
+        break;
+    }
+  }
+
+  // Emit stepCompleted (and branchDivergenceDetected if applicable) so that all connected
+  // viewers and the PixelDebugSyncPanel refresh.  Peers are already at targetIdx so their
+  // syncStep() calls inside onViewerStepped are no-op loops; only updateDebugState() runs.
+  m_VariablesChanged.clear();
+  mgr->notifyStepCompleted(m_SyncGroupId);
+}
+
+void ShaderViewer::updateSyncStatusLabel()
+{
+  if(!m_SyncStatusLabel || m_SyncGroupId == ~0U)
+    return;
+
+  PixelDebugSyncManager *mgr = PixelDebugSyncManager::instance();
+
+  if(mgr->hasBranchDivergence(m_SyncGroupId))
+  {
+    m_SyncStatusLabel->setText(
+        tr("<b>Branch divergence detected</b> — viewers are at different "
+           "instructions."));
+    return;
+  }
+
+  int divergentCount = 0;
+  for(const VarDiff &d : mgr->computeDiffs(m_SyncGroupId))
+    if(d.divergent)
+      divergentCount++;
+
+  if(divergentCount > 0)
+    m_SyncStatusLabel->setText(
+        tr("<b>%1 variable(s) diverge</b> beyond threshold.").arg(divergentCount));
+  else
+    m_SyncStatusLabel->setText(tr("No divergence detected."));
+}
+
+void ShaderViewer::applySyncExpansion(const QSet<uint> &state)
+{
+  m_SyncExpanding = true;
+  ui->sourceVars->applyExpansion(state, 0);
+  m_SyncExpanding = false;
+}
+
+void ShaderViewer::addDivergenceBookmark()
+{
+  const LineColumnInfo &lineInfo = GetCurrentLineInfo();
+
+  // Bookmark the current line in the disassembly view.
+  if(m_DisassemblyView && lineInfo.disassemblyLine > 0)
+  {
+    sptr_t line = (sptr_t)lineInfo.disassemblyLine - 1;    // Scintilla is 0-based
+    QList<sptr_t> &bmarks = m_Bookmarks[m_DisassemblyView];
+    if(!bmarks.contains(line))
+    {
+      bmarks.insert(std::lower_bound(bmarks.begin(), bmarks.end(), line), line);
+      m_DisassemblyView->markerAdd(line, BOOKMARK_MARKER);
+    }
+  }
+
+  // Also bookmark in the active source file if available.
+  if(m_CurInstructionScintilla && lineInfo.fileIndex >= 0 &&
+     lineInfo.fileIndex < m_FileScintillas.count() && lineInfo.lineStart > 0)
+  {
+    sptr_t line = (sptr_t)lineInfo.lineStart - 1;    // Scintilla is 0-based
+    QList<sptr_t> &bmarks = m_Bookmarks[m_CurInstructionScintilla];
+    if(!bmarks.contains(line))
+    {
+      bmarks.insert(std::lower_bound(bmarks.begin(), bmarks.end(), line), line);
+      m_CurInstructionScintilla->markerAdd(line, BOOKMARK_MARKER);
+    }
+  }
+}
+
+// ---- end Sync group support ---------------------------------------------------
 
 void ShaderViewer::runToCursor(bool forward)
 {
@@ -2690,6 +3217,7 @@ void ShaderViewer::runTo(const rdcarray<uint32_t> &runToInstructions, bool forwa
   }
 
   updateDebugState();
+  notifySyncManager();
 }
 
 void ShaderViewer::runToResourceAccess(bool forward, VarType type, const ResourceReference &resRef)
@@ -2747,6 +3275,7 @@ void ShaderViewer::runToResourceAccess(bool forward, VarType type, const Resourc
   }
 
   updateDebugState();
+  notifySyncManager();
 }
 
 void ShaderViewer::applyBackwardsChange()
@@ -4410,6 +4939,31 @@ void ShaderViewer::updateDebugState()
         3, qMax(ui->constants->header()->sectionSize(3), ui->constants->sizeHintForColumn(3)));
   }
 
+  // Compute divergent variable paths for sync-group highlighting.
+  // Always recomputed on every updateDebugState so the display reflects the current step.
+  // The stepCompleted handler calls updateDebugState a second time after all peers are synced,
+  // so the final render always shows the correct (post-sync) divergence state.
+  m_DivergentPaths.clear();
+  m_DivergentComponents.clear();
+  if(m_SyncGroupId != ~0U)
+  {
+    PixelDebugSyncManager *mgr = PixelDebugSyncManager::instance();
+    for(const VarDiff &d : mgr->computeDiffs(m_SyncGroupId))
+      if(d.divergent)
+      {
+        m_DivergentPaths.insert(d.path);
+        if(!d.componentDivergent.isEmpty())
+          m_DivergentComponents[d.path] = d.componentDivergent;
+      }
+
+    // Bookmark the first instruction at which divergence appears.
+    bool hasBranchDiv = mgr->hasBranchDivergence(m_SyncGroupId);
+    bool nowDivergent = !m_DivergentPaths.isEmpty() || hasBranchDiv;
+    if(nowDivergent && !m_LastWasDivergent)
+      addDivergenceBookmark();
+    m_LastWasDivergent = nowDivergent;
+  }
+
   {
     RDTreeViewExpansionState expansion;
     ui->sourceVars->saveExpansion(expansion, 0);
@@ -4967,6 +5521,20 @@ RDTreeWidgetItem *ShaderViewer::makeSourceVariableNode(const ShaderVariable &var
   if(tag.modified)
     node->setForegroundColor(QColor(Qt::red));
 
+  // Highlight with an orange background if this debug variable path is divergent in the sync group
+  if(!m_DivergentPaths.isEmpty())
+  {
+    QString fullPath = QString(debugName);
+    for(const QString &dp : m_DivergentPaths)
+    {
+      if(dp == fullPath || dp.startsWith(fullPath + lit(".")) || dp.startsWith(fullPath + lit("[")))
+      {
+        node->setBackgroundColor(QColor(255, 140, 0, 80));
+        break;
+      }
+    }
+  }
+
   return node;
 }
 
@@ -5153,33 +5721,36 @@ RDTreeWidgetItem *ShaderViewer::makeSourceVariableNode(const SourceVariableMappi
             break;
           }
 
+          QString compVal;
           switch(l.type)
           {
-            case VarType::Float: value += Formatter::Format(reg->value.f32v[r.component]); break;
-            case VarType::Double: value += Formatter::Format(reg->value.f64v[r.component]); break;
-            case VarType::Half: value += Formatter::Format(reg->value.f16v[r.component]); break;
+            case VarType::Float: compVal = Formatter::Format(reg->value.f32v[r.component]); break;
+            case VarType::Double: compVal = Formatter::Format(reg->value.f64v[r.component]); break;
+            case VarType::Half: compVal = Formatter::Format(reg->value.f16v[r.component]); break;
             case VarType::Bool:
-              value += Formatter::Format(reg->value.u32v[r.component] ? true : false);
+              compVal = Formatter::Format(reg->value.u32v[r.component] ? true : false);
               break;
-            case VarType::ULong: value += Formatter::Format(reg->value.u64v[r.component]); break;
-            case VarType::UInt: value += Formatter::Format(reg->value.u32v[r.component]); break;
-            case VarType::UShort: value += Formatter::Format(reg->value.u16v[r.component]); break;
-            case VarType::UByte: value += Formatter::Format(reg->value.u8v[r.component]); break;
-            case VarType::SLong: value += Formatter::Format(reg->value.s64v[r.component]); break;
-            case VarType::SInt: value += Formatter::Format(reg->value.s32v[r.component]); break;
-            case VarType::SShort: value += Formatter::Format(reg->value.s16v[r.component]); break;
-            case VarType::SByte: value += Formatter::Format(reg->value.s8v[r.component]); break;
-            case VarType::GPUPointer: value += ToQStr(reg->GetPointer()); break;
+            case VarType::ULong: compVal = Formatter::Format(reg->value.u64v[r.component]); break;
+            case VarType::UInt: compVal = Formatter::Format(reg->value.u32v[r.component]); break;
+            case VarType::UShort: compVal = Formatter::Format(reg->value.u16v[r.component]); break;
+            case VarType::UByte: compVal = Formatter::Format(reg->value.u8v[r.component]); break;
+            case VarType::SLong: compVal = Formatter::Format(reg->value.s64v[r.component]); break;
+            case VarType::SInt: compVal = Formatter::Format(reg->value.s32v[r.component]); break;
+            case VarType::SShort: compVal = Formatter::Format(reg->value.s16v[r.component]); break;
+            case VarType::SByte: compVal = Formatter::Format(reg->value.s8v[r.component]); break;
+            case VarType::GPUPointer: compVal = ToQStr(reg->GetPointer()); break;
             case VarType::ConstantBlock:
             case VarType::ReadOnlyResource:
             case VarType::ReadWriteResource:
             case VarType::Sampler:
             case VarType::Enum:
-            case VarType::Struct: value += stringRep(*reg, 0); break;
+            case VarType::Struct: compVal = stringRep(*reg, 0); break;
             case VarType::Unknown:
               qCritical() << "Unexpected unknown variable" << (QString)l.name;
               break;
           }
+
+          value += compVal;
         }
         else
         {
@@ -5221,6 +5792,38 @@ RDTreeWidgetItem *ShaderViewer::makeSourceVariableNode(const SourceVariableMappi
 
   if(baseTag.modified)
     node->setForegroundColor(QColor(Qt::red));
+
+  // Highlight with an orange background if any referenced debug variable component is divergent.
+  // Use per-component data when available so that a source variable mapped to r5.x is only
+  // highlighted when component x (not some other component of r5) is actually divergent.
+  if(!m_DivergentPaths.isEmpty())
+  {
+    bool isDivergent = false;
+    for(const DebugVariableReference &r : l.variables)
+    {
+      if(r.type != DebugVariableType::Variable || r.name.empty())
+        continue;
+      QString refPath = QString(r.name);
+      auto compIt = m_DivergentComponents.find(refPath);
+      if(compIt != m_DivergentComponents.end())
+      {
+        // Per-component data available: only flag if the specific component used here diverges
+        if(r.component < (uint32_t)compIt->size() && (*compIt)[(int)r.component])
+        {
+          isDivergent = true;
+          break;
+        }
+      }
+      else if(m_DivergentPaths.contains(refPath))
+      {
+        // No per-component data (e.g. struct member path): fall back to register-level check
+        isDivergent = true;
+        break;
+      }
+    }
+    if(isDivergent)
+      node->setBackgroundColor(QColor(255, 140, 0, 80));
+  }
 
   node->setTag(QVariant::fromValue(baseTag));
 
@@ -5272,6 +5875,21 @@ RDTreeWidgetItem *ShaderViewer::makeDebugVariableNode(const ShaderVariable &v, r
 
   if(tag.modified)
     node->setForegroundColor(QColor(Qt::red));
+
+  // Highlight with an orange background if this debug variable path is divergent in the sync group.
+  if(!m_DivergentPaths.isEmpty())
+  {
+    QString fullPath = QString(basename);
+    for(const QString &dp : m_DivergentPaths)
+    {
+      if(dp == fullPath || dp.startsWith(fullPath + lit(".")) || dp.startsWith(fullPath + lit("[")) ||
+         fullPath.startsWith(dp + lit(".")) || fullPath.startsWith(dp + lit("[")))
+      {
+        node->setBackgroundColor(QColor(255, 140, 0, 80));
+        break;
+      }
+    }
+  }
 
   return node;
 }
@@ -5448,7 +6066,9 @@ void ShaderViewer::ensureLineScrolled(ScintillaEdit *s, int line)
 
 uint32_t ShaderViewer::CurrentStep()
 {
-  return (uint32_t)m_CurrentStateIdx;
+  if(m_States.empty())
+    return 0;
+  return GetCurrentState().stepIndex;
 }
 
 void ShaderViewer::SetCurrentStep(uint32_t step)
@@ -5479,6 +6099,7 @@ void ShaderViewer::SetCurrentStep(uint32_t step)
   }
 
   updateDebugState();
+  notifySyncManager();
 }
 
 void ShaderViewer::ToggleBreakpointOnInstruction(int32_t instruction)
@@ -5662,6 +6283,18 @@ void ShaderViewer::RunForward()
   {
     m_DeferredCommands.push_back([](ShaderViewer *v) { v->RunForward(); });
     return;
+  }
+
+  // When in a sync group with either break-on-divergence option active, use the coordinated
+  // run-to-divergence path so all group members are stepped together and can stop early.
+  if(m_SyncGroupId != ~0U)
+  {
+    const SyncGroup *sg = PixelDebugSyncManager::instance()->getGroup(m_SyncGroupId);
+    if(sg && sg->viewers.size() >= 2 && (sg->autoBreakOnDivergence || sg->autoBreakOnVarDivergence))
+    {
+      runToDivergence(true);
+      return;
+    }
   }
 
   runTo(~0U, true);
@@ -6141,6 +6774,9 @@ void ShaderViewer::updateVariableTooltip()
       QString spacing = QString(var.name.count(), QLatin1Char(' '));
       for(int i = 1; i < var.rows; i++)
         tooltip += QFormatStr("%1  %2\n").arg(spacing).arg(RowString(var, i));
+      QString syncSuffix = syncDiffTooltipSuffix(mapping);
+      if(!syncSuffix.isEmpty())
+        tooltip += syncSuffix;
       tooltip += lit("</pre>");
     }
 
@@ -6198,9 +6834,184 @@ void ShaderViewer::updateVariableTooltip()
               .arg(Formatter::HexFormat(var.value.u32v[1], 4))
               .arg(Formatter::HexFormat(var.value.u32v[2], 4))
               .arg(Formatter::HexFormat(var.value.u32v[3], 4));
+  QString syncSuffix = syncDiffTooltipSuffix(mapping);
+  if(!syncSuffix.isEmpty())
+    text += syncSuffix;
   text += lit("</pre>");
 
   QToolTip::showText(m_TooltipPos, text);
+}
+
+QString ShaderViewer::syncDiffTooltipSuffix(const SourceVariableMapping &mapping)
+{
+  if(m_SyncGroupId == ~0U)
+    return {};
+
+  PixelDebugSyncManager *mgr = PixelDebugSyncManager::instance();
+  const SyncGroup *g = mgr->getGroup(m_SyncGroupId);
+  if(!g || g->viewers.size() < 2)
+    return {};
+
+  int thisIdx = g->viewers.indexOf(this);
+  if(thisIdx < 0)
+    return {};
+
+  auto formatComp = [](const ShaderVariable &v, uint32_t ci) -> QString {
+    // Unknown type (e.g. DXBC temp registers) defaults to float display
+    VarType t = (v.type == VarType::Unknown) ? VarType::Float : v.type;
+    switch(t)
+    {
+      case VarType::Float: return QString::number((double)v.value.f32v[ci], 'g', 8);
+      case VarType::Half: return QString::number((double)(float)v.value.f16v[ci], 'g', 8);
+      case VarType::Double: return QString::number(v.value.f64v[ci], 'g', 8);
+      case VarType::SInt: return QString::number(v.value.s32v[ci]);
+      case VarType::UInt: return QString::number(v.value.u32v[ci]);
+      case VarType::Bool: return v.value.u32v[ci] ? lit("true") : lit("false");
+      default: return QString::number((double)v.value.f32v[ci], 'g', 8);
+    }
+  };
+
+  static const char *compNames[] = {"x", "y", "z", "w"};
+
+  struct PeerEntry
+  {
+    QString serial;
+    QString val;
+    QString delta;    // empty if not float or not applicable
+  };
+  struct CompDiff
+  {
+    QString label;    // component name ("x", "y", ...) or empty for scalar
+    QString thisSerial;
+    QString thisVal;
+    QList<PeerEntry> peers;
+  };
+  QList<CompDiff> compDiffs;
+
+  QString thisSerial = mgr->serialLabelForViewer(m_SyncGroupId, this);
+
+  QList<VarDiff> diffs = mgr->computeDiffs(m_SyncGroupId);
+
+  auto buildCompDiff = [&](const VarDiff &d, uint32_t ci, const QString &label) {
+    if(thisIdx >= d.values.size())
+      return;
+    const ShaderVariable &thisVar = d.values[thisIdx];
+    VarType thisType = (thisVar.type == VarType::Unknown) ? VarType::Float : thisVar.type;
+    CompDiff cd;
+    cd.label = label;
+    cd.thisSerial = thisSerial;
+    cd.thisVal = formatComp(thisVar, ci);
+    for(int vi = 0; vi < d.values.size(); vi++)
+    {
+      if(vi == thisIdx || !d.present[vi])
+        continue;
+      PeerEntry pe;
+      pe.serial = mgr->serialLabelForViewer(m_SyncGroupId, g->viewers[vi]);
+      pe.val = formatComp(d.values[vi], ci);
+      if(thisType == VarType::Float || thisType == VarType::Half || thisType == VarType::Double)
+      {
+        double delta;
+        if(thisType == VarType::Double)
+          delta = thisVar.value.f64v[ci] - d.values[vi].value.f64v[ci];
+        else if(thisType == VarType::Half)
+          delta = (double)(float)thisVar.value.f16v[ci] - (double)(float)d.values[vi].value.f16v[ci];
+        else
+          delta = (double)thisVar.value.f32v[ci] - (double)d.values[vi].value.f32v[ci];
+        pe.delta = QString::number(delta, 'g', 4);
+      }
+      cd.peers.push_back(pe);
+    }
+    if(!cd.peers.isEmpty())
+      compDiffs.push_back(cd);
+  };
+
+  if(!mapping.variables.isEmpty())
+  {
+    // Source variable: check each referenced component individually
+    for(const DebugVariableReference &r : mapping.variables)
+    {
+      if(r.type != DebugVariableType::Variable || r.name.empty())
+        continue;
+      QString refPath = QString(r.name);
+      auto compIt = m_DivergentComponents.find(refPath);
+      bool isDivergent = false;
+      if(compIt != m_DivergentComponents.end())
+        isDivergent = r.component < (uint32_t)compIt->size() && (*compIt)[(int)r.component];
+      else
+        isDivergent = m_DivergentPaths.contains(refPath);
+      if(!isDivergent)
+        continue;
+
+      for(const VarDiff &d : diffs)
+      {
+        if(d.path != refPath || !d.divergent)
+          continue;
+        // Use component label only when mapping references multiple components (vector var)
+        QString label = (mapping.variables.size() > 1 && r.component < 4)
+                            ? QLatin1String(compNames[r.component])
+                            : QString();
+        buildCompDiff(d, r.component, label);
+        break;
+      }
+    }
+  }
+  else if(m_DivergentPaths.contains(m_TooltipVarPath))
+  {
+    // Direct debug-var hover (no source mapping) — show each divergent component
+    for(const VarDiff &d : diffs)
+    {
+      if(d.path != m_TooltipVarPath || !d.divergent)
+        continue;
+      if(thisIdx >= d.values.size())
+        break;
+      const ShaderVariable &thisVar = d.values[thisIdx];
+      uint32_t count = (uint32_t)thisVar.rows * (uint32_t)thisVar.columns;
+      for(uint32_t ci = 0; ci < count; ci++)
+      {
+        bool compDiv =
+            (ci < (uint32_t)d.componentDivergent.size()) ? d.componentDivergent[(int)ci] : true;
+        if(!compDiv)
+          continue;
+        QString label = (count > 1 && ci < 4) ? QLatin1String(compNames[ci]) : QString();
+        buildCompDiff(d, ci, label);
+      }
+      break;
+    }
+  }
+
+  if(compDiffs.isEmpty())
+    return {};
+
+  // Compute the maximum label length across all entries so values line up in monospace.
+  int maxLabelLen = 0;
+  for(const CompDiff &cd : compDiffs)
+  {
+    QString tl = cd.thisSerial.isEmpty() ? lit("this") : cd.thisSerial;
+    maxLabelLen = qMax(maxLabelLen, tl.length());
+    for(const PeerEntry &pe : cd.peers)
+    {
+      QString pl = pe.serial.isEmpty() ? lit("other") : pe.serial;
+      maxLabelLen = qMax(maxLabelLen, pl.length());
+    }
+  }
+
+  QString result = lit("\n-- Sync Divergence --\n");
+  for(const CompDiff &cd : compDiffs)
+  {
+    if(!cd.label.isEmpty())
+      result += QFormatStr("  [%1]\n").arg(cd.label);
+    QString thisLabel = cd.thisSerial.isEmpty() ? lit("this") : cd.thisSerial;
+    result += QFormatStr("  [%1]: %2\n").arg(thisLabel.leftJustified(maxLabelLen)).arg(cd.thisVal);
+    for(const PeerEntry &pe : cd.peers)
+    {
+      QString peerLabel = pe.serial.isEmpty() ? lit("other") : pe.serial;
+      result += QFormatStr("  [%1]: %2").arg(peerLabel.leftJustified(maxLabelLen)).arg(pe.val);
+      if(!pe.delta.isEmpty())
+        result += lit("  (") + QChar(0x0394) + lit(" ") + pe.delta + lit(")");
+      result += lit("\n");
+    }
+  }
+  return result;
 }
 
 void ShaderViewer::hideVariableTooltip()
@@ -6292,7 +7103,7 @@ void ShaderViewer::PopulateCompileToolParameters()
   {
     for(const ShaderProcessingTool &tool : m_Ctx.Config().ShaderProcessors)
     {
-      if(QString(tool.name) == ui->compileTool->currentText())
+      if(ToQStr(tool.name) == ui->compileTool->currentText())
       {
         ui->toolCommandLine->setPlainText(tool.DefaultArguments());
         ui->toolCommandLine->setEnabled(true);
@@ -6387,13 +7198,13 @@ bool ShaderViewer::ProcessIncludeDirectives(QString &source, const rdcstrpairs &
     // look for exact match first
     for(const rdcstrpair &kv : files)
     {
-      if(QString(kv.first) == fname)
+      if(ToQStr(kv.first) == fname)
       {
         if(exclude.contains(kv.first))
         {
           fileText = QFormatStr("// not recursively including %1\n").arg(fname);
         }
-        else if(allIncluded.contains(kv.first) && QString(kv.second).contains(pragmaOnceRegex))
+        else if(allIncluded.contains(kv.first) && ToQStr(kv.second).contains(pragmaOnceRegex))
         {
           fileText = QFormatStr("// not re-including %1 (pragma once)\n").arg(fname);
         }
@@ -6426,7 +7237,7 @@ bool ShaderViewer::ProcessIncludeDirectives(QString &source, const rdcstrpairs &
           {
             fileText = QFormatStr("// not recursively including %1\n").arg(fname);
           }
-          else if(allIncluded.contains(kv.first) && QString(kv.second).contains(pragmaOnceRegex))
+          else if(allIncluded.contains(kv.first) && ToQStr(kv.second).contains(pragmaOnceRegex))
           {
             fileText = QFormatStr("// not re-including %1 (pragma once)\n").arg(fname);
           }
@@ -6564,7 +7375,7 @@ void ShaderViewer::on_refresh_clicked()
     {
       for(const ShaderProcessingTool &tool : m_Ctx.Config().ShaderProcessors)
       {
-        if(QString(tool.name) == ui->compileTool->currentText())
+        if(ToQStr(tool.name) == ui->compileTool->currentText())
         {
           ShaderToolOutput out = tool.CompileShader(this, source, ui->entryFunc->text(), m_Stage,
                                                     spirvVer, ui->toolCommandLine->toPlainText());
@@ -6610,6 +7421,9 @@ void ShaderViewer::on_intView_clicked()
   ui->floatView->setChecked(false);
 
   updateDebugState();
+
+  if(m_SyncGroupId != ~0U && !m_SyncMode)
+    PixelDebugSyncManager::instance()->onViewerDisplayChanged(this);
 }
 
 void ShaderViewer::on_floatView_clicked()
@@ -6618,6 +7432,9 @@ void ShaderViewer::on_floatView_clicked()
   ui->intView->setChecked(false);
 
   updateDebugState();
+
+  if(m_SyncGroupId != ~0U && !m_SyncMode)
+    PixelDebugSyncManager::instance()->onViewerDisplayChanged(this);
 }
 
 void ShaderViewer::on_debugToggle_clicked()
@@ -6628,6 +7445,9 @@ void ShaderViewer::on_debugToggle_clicked()
     gotoSourceDebugging();
 
   updateDebugState();
+
+  if(m_SyncGroupId != ~0U && !m_SyncMode)
+    PixelDebugSyncManager::instance()->onViewerDisplayChanged(this);
 }
 
 void ShaderViewer::on_toggleLog_clicked()

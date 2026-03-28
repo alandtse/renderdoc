@@ -724,6 +724,14 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
   {
     return InvokeRetFunction<IResourceInspector *>(&ICaptureContext::GetResourceInspector);
   }
+  virtual IPixelDebugSyncPanel *GetPixelDebugSyncPanel() override
+  {
+    return InvokeRetFunction<IPixelDebugSyncPanel *>(&ICaptureContext::GetPixelDebugSyncPanel);
+  }
+  virtual IPixelDebugSyncManager *GetPixelDebugSyncManager() override
+  {
+    return InvokeRetFunction<IPixelDebugSyncManager *>(&ICaptureContext::GetPixelDebugSyncManager);
+  }
   virtual bool HasEventBrowser() override
   {
     return InvokeRetFunction<bool>(&ICaptureContext::HasEventBrowser);
@@ -784,6 +792,10 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
   {
     return InvokeRetFunction<bool>(&ICaptureContext::HasResourceInspector);
   }
+  virtual bool HasPixelDebugSyncPanel() override
+  {
+    return InvokeRetFunction<bool>(&ICaptureContext::HasPixelDebugSyncPanel);
+  }
 
   virtual void ShowEventBrowser() override
   {
@@ -832,6 +844,10 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
   virtual void ShowResourceInspector() override
   {
     InvokeVoidFunction(&ICaptureContext::ShowResourceInspector);
+  }
+  virtual void ShowPixelDebugSyncPanel() override
+  {
+    InvokeVoidFunction(&ICaptureContext::ShowPixelDebugSyncPanel);
   }
   virtual IShaderViewer *EditShader(ResourceId id, ShaderStage stage, const rdcstr &entryPoint,
                                     const rdcstrpairs &files, KnownShaderTool knownTool,

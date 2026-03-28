@@ -24,7 +24,18 @@ New components:
   `ShaderViewer` instances
 - `PixelDebugSyncPanel` — UI panel showing per-step variable diffs between synced
   debuggers
-- `IPixelDebugSyncPanel` / `ISyncedDebugger` interfaces in `QRDInterface.h`
+- `IPixelDebugSyncPanel` / `IPixelDebugSyncManager` interfaces in `QRDInterface.h`
+
+Python/agent API (`qrenderdoc` module, via `ctx.GetPixelDebugSyncManager()`):
+- `SyncGroupInfo` — group metadata (id, viewer count, threshold, break settings)
+- `SyncVarDiff` — per-variable divergence data (values per viewer, presence flags,
+  per-component divergence mask)
+- `IPixelDebugSyncManager.GetAllGroupIds()` — list active group IDs
+- `IPixelDebugSyncManager.GetGroupInfo(groupId)` — query group metadata
+- `IPixelDebugSyncManager.ComputeDiffs(groupId)` — get full variable diff list
+- `IPixelDebugSyncManager.HasBranchDivergence(groupId)` — detect control-flow split
+- `IPixelDebugSyncManager.SetThreshold/SetIgnoreIntDivergence` — configure group
+- `IPixelDebugSyncManager.FormatVarValue/VarsAreDivergent` — formatting utilities
 
 ---
 

@@ -50,3 +50,15 @@ Utilities
 .. autoclass:: qrenderdoc.EventBookmark
   :members:
 
+Pixel Debug Sync
+----------------
+
+.. autoclass:: qrenderdoc.SyncGroupInfo
+  :members:
+
+.. autoclass:: qrenderdoc.SyncVarDiff
+  :members:
+
+.. autoclass:: qrenderdoc.PixelDebugSyncManager
+  :members:
+
