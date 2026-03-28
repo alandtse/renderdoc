@@ -311,30 +311,6 @@ jobs:
         cd docs
         make html SPHINXOPTS=-W
         python3 verify-docstrings.py
-    - name: Generate Python stubs
-      run: python3 docs/regenerate_stubs.py Documentation/html/stubs
-    - name: Upload Pages artifact
-      if: github.event_name == 'push'
-      uses: actions/upload-pages-artifact@v4
-      with:
-        path: Documentation/html
-
-  deploy-docs:
-    name: Deploy Documentation
-    needs: docs
-    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
-    runs-on: ubuntu-22.04
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-    - name: Deploy to GitHub Pages
-      id: deployment
-      uses: actions/deploy-pages@v5
-
   linux:
     name: Linux
     needs: [commit-msg, clang-format]
