@@ -1431,27 +1431,49 @@ DOCUMENT(R"(Summary information about one synchronised pixel-debugger group, ret
 )");
 struct SyncGroupInfo
 {
-  DOCUMENT("The numeric group ID.");
+  DOCUMENT(R"(The numeric group ID.
+
+:type: int
+)");
   uint32_t id = 0;
 
-  DOCUMENT("Human-readable name for this group.");
+  DOCUMENT(R"(Human-readable name for this group.
+
+:type: str
+)");
   rdcstr name;
 
-  DOCUMENT("Number of :class:`ShaderViewer` instances currently in this group.");
+  DOCUMENT(R"(Number of :class:`ShaderViewer` instances currently in this group.
+
+:type: int
+)");
   uint32_t viewerCount = 0;
 
-  DOCUMENT("Maximum absolute difference before a float component is flagged as divergent.");
+  DOCUMENT(R"(Maximum absolute difference before a float component is flagged as divergent.
+
+:type: float
+)");
   float threshold = 0.001f;
 
-  DOCUMENT("``True`` if integer and boolean differences are suppressed.");
+  DOCUMENT(R"(``True`` if integer and boolean differences are suppressed.
+
+:type: bool
+)");
   bool ignoreIntDivergence = false;
 
-  DOCUMENT("``True`` if a run-forward operation stops when viewers reach different instructions.");
+  DOCUMENT(R"(``True`` if a run-forward operation stops when viewers reach different instructions.
+
+:type: bool
+)");
   bool autoBreakOnDivergence = true;
 
-  DOCUMENT("``True`` if a run-forward operation stops when any variable becomes newly divergent.");
+  DOCUMENT(R"(``True`` if a run-forward operation stops when any variable becomes newly divergent.
+
+:type: bool
+)");
   bool autoBreakOnVarDivergence = false;
 
+  DOCUMENT("");
   bool operator==(const SyncGroupInfo &o) const { return id == o.id; }
   bool operator<(const SyncGroupInfo &o) const { return id < o.id; }
 };
@@ -1463,27 +1485,41 @@ part of the list from :meth:`PixelDebugSyncManager.ComputeDiffs`.
 )");
 struct SyncVarDiff
 {
-  DOCUMENT("Dot-separated path identifying the variable, e.g. ``\"myStruct.color.x\"``.");
+  DOCUMENT(R"(Dot-separated path identifying the variable, e.g. ``"myStruct.color.x"``.
+
+:type: str
+)");
   rdcstr path;
 
   DOCUMENT(R"(Value of the variable in each viewer, in group order. When the corresponding entry
 in :data:`present` is ``0`` the variable was absent from that viewer and this entry is a
 zero-initialised placeholder.
+
+:type: List[renderdoc.ShaderVariable]
 )");
   rdcarray<ShaderVariable> values;
 
-  DOCUMENT("Per-viewer presence flags (``1`` = variable exists in that viewer, ``0`` = absent).");
+  DOCUMENT(R"(Per-viewer presence flags (``1`` = variable exists in that viewer, ``0`` = absent).
+
+:type: List[int]
+)");
   rdcarray<uint32_t> present;
 
-  DOCUMENT("``True`` if any viewer pair exceeds the configured threshold for this variable.");
+  DOCUMENT(R"(``True`` if any viewer pair exceeds the configured threshold for this variable.
+
+:type: bool
+)");
   bool divergent = false;
 
   DOCUMENT(R"(Per-component divergence flags (``1`` = component diverges across at least one
 viewer pair, ``0`` = component agrees). Empty for struct-parent nodes; one entry per component
 for leaf variables.
+
+:type: List[int]
 )");
   rdcarray<uint32_t> componentDivergent;
 
+  DOCUMENT("");
   bool operator==(const SyncVarDiff &o) const { return path == o.path; }
   bool operator<(const SyncVarDiff &o) const { return path < o.path; }
 };
