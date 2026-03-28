@@ -1578,18 +1578,18 @@ struct IPixelDebugSyncManager
 )");
   virtual void SetIgnoreIntDivergence(uint32_t groupId, bool ignore) = 0;
 
-  DOCUMENT(R"(Format a :class:`~renderdoc.ShaderVariable` value as a human-readable string.
+  DOCUMENT(R"(Format a :class:`renderdoc.ShaderVariable` value as a human-readable string.
 
-:param ~renderdoc.ShaderVariable var: The variable to format.
+:param renderdoc.ShaderVariable var: The variable to format.
 :return: Formatted string.
 :rtype: str
 )");
   virtual rdcstr FormatVarValue(const ShaderVariable &var) const = 0;
 
-  DOCUMENT(R"(Return whether two :class:`~renderdoc.ShaderVariable` values are divergent.
+  DOCUMENT(R"(Return whether two :class:`renderdoc.ShaderVariable` values are divergent.
 
-:param ~renderdoc.ShaderVariable a: First variable.
-:param ~renderdoc.ShaderVariable b: Second variable.
+:param renderdoc.ShaderVariable a: First variable.
+:param renderdoc.ShaderVariable b: Second variable.
 :param float threshold: Maximum absolute difference for float components.
 :return: ``True`` if the variables differ beyond the threshold.
 :rtype: bool
