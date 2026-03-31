@@ -6670,7 +6670,10 @@ void WrappedVulkan::AddFramebufferUsageAllChildren(VulkanActionTreeNode &actionN
   for(VulkanActionTreeNode &c : actionNode.children)
     AddFramebufferUsageAllChildren(c, renderState);
 
-  AddFramebufferUsage(actionNode, renderState);
+  ActionDescription &action = actionNode.action;
+  ActionFlags DrawMask = ActionFlags::MeshDispatch | ActionFlags::Drawcall;
+  if(action.flags & DrawMask)
+    AddFramebufferUsage(actionNode, renderState);
 }
 
 void WrappedVulkan::AddEvent()
