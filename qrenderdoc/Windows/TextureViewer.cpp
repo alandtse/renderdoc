@@ -1038,7 +1038,16 @@ void TextureViewer::UI_UpdateStatusText()
 
     y = qMax(0, y);
 
-    pickedText = tr("Right click - %1, %2: ").arg(x, 4).arg(y, 4);
+    if(m_SBSMapper.enabled)
+    {
+      uint32_t eye = m_SBSMapper.eyeIndexForPixel(m_PickedPoint, tex.width);
+      pickedText =
+          tr("Right click [%1] - %2, %3: ").arg(eye == 0 ? tr("L") : tr("R")).arg(x, 4).arg(y, 4);
+    }
+    else
+    {
+      pickedText = tr("Right click - %1, %2: ").arg(x, 4).arg(y, 4);
+    }
 
     PixelValue val = m_CurPixelValue;
 
@@ -1131,10 +1140,13 @@ void TextureViewer::UI_UpdateStatusText()
 
     if(m_TexDisplay.customShaderId != ResourceId())
       pickedText += lit(")");
+
+    ui->jumpOtherEye->setEnabled(m_SBSMapper.enabled);
   }
   else
   {
     pickedText += tr("Right click to pick a pixel");
+    ui->jumpOtherEye->setEnabled(false);
   }
 
   // try and keep status text consistent by sticking to the high water mark
@@ -3116,6 +3128,7 @@ void TextureViewer::OnCaptureClosed()
   ui->saveTex->setEnabled(false);
   ui->locationGoto->setEnabled(false);
   ui->viewTexBuffer->setEnabled(false);
+  ui->jumpOtherEye->setEnabled(false);
 
   UI_UpdateChannels();
 }
@@ -4164,6 +4177,42 @@ void TextureViewer::on_debugPixelContext_clicked()
 void TextureViewer::on_pixelHistory_clicked()
 {
   ShowPixelHistory(false);
+}
+
+void TextureViewer::on_sbsToggle_toggled(bool checked)
+{
+  m_SBSMapper.enabled = checked;
+  ui->jumpOtherEye->setEnabled(checked && m_PickedPoint.x() >= 0);
+  UI_UpdateStatusText();
+}
+
+void TextureViewer::on_jumpOtherEye_clicked()
+{
+  if(m_PickedPoint.x() < 0 || m_PickedPoint.y() < 0)
+    return;
+
+  TextureDescription *tex = GetCurrentTexture();
+  if(!tex || tex->width == 0)
+    return;
+
+  // m_PickedPoint is stored in base texture coordinates with Y possibly flipped.
+  // X is unaffected by Y-flip, so we read it directly.
+  int halfWidth = (int)(tex->width / 2);
+  int srcX = m_PickedPoint.x();
+  int otherX = (srcX < halfWidth) ? srcX + halfWidth : srcX - halfWidth;
+
+  if(otherX < 0 || otherX >= (int)tex->width)
+    return;
+
+  // Un-flip Y to obtain the logical base coordinate that GotoLocation expects.
+  int logicalY = m_PickedPoint.y();
+  if(ShouldFlipForGL())
+    logicalY = (int)(tex->height - 1) - logicalY;
+  if(m_TexDisplay.flipY)
+    logicalY = (int)(tex->height - 1) - logicalY;
+
+  // GotoLocation takes mip-level coordinates.
+  GotoLocation(MipCoordFromBase(otherX, tex->width), MipCoordFromBase(logicalY, tex->height));
 }
 
 void TextureViewer::ShowPixelHistory(bool failedDebug)

@@ -30,6 +30,7 @@
 #include <QMouseEvent>
 #include <QTime>
 #include "Code/Interface/QRDInterface.h"
+#include "Code/SBSMapper.h"
 
 namespace Ui
 {
@@ -194,6 +195,8 @@ private slots:
   void on_saveTex_clicked();
   void on_debugPixelContext_clicked();
   void on_pixelHistory_clicked();
+  void on_sbsToggle_toggled(bool checked);
+  void on_jumpOtherEye_clicked();
 
   void on_customCreate_clicked();
   void on_customEdit_clicked();
@@ -385,4 +388,6 @@ private:
   QString getShaderPath(const QString &filename) const;
 
   TextureDisplay m_TexDisplay;
+
+  SBSMapper m_SBSMapper;
 };

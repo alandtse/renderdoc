@@ -11,6 +11,34 @@ Include the branch or commit where the feature landed.
 
 ## Active Features
 
+### VR SBS "Jump to Other Eye" Pixel Navigation
+**Branch:** `vr_sbs_eye_mapping`
+**Status:** Phase 1 — simple mirror (no matrix reprojection)
+
+In VR captures that render both eyes side-by-side into a single texture (left eye in
+`x ∈ [0, W/2)`, right eye in `x ∈ [W/2, W)`), it is useful to jump directly from a
+picked pixel in one eye to the corresponding location in the other eye.
+
+**Usage:**
+1. Enable the **SBS** toggle button in the Texture Viewer's action toolbar.
+2. Right-click a pixel in the SBS texture to pick it. The status bar shows `[L]` or `[R]`
+   to indicate which eye the picked pixel belongs to.
+3. Click **Other Eye** in the pixel context panel to jump the picked point to the
+   corresponding position in the opposite eye's half of the texture.
+
+**New components:**
+- `qrenderdoc/Code/SBSMapper` — `SBSMapper` class encapsulating eye-index detection and
+  pixel mapping. Phase 1 uses a simple horizontal mirror (no projection matrices needed).
+  Designed to accept a Phase 2 matrix-reprojection path for geometrically accurate mapping.
+
+**Known limitations (Phase 1):**
+- The mapped pixel is the mirror position, not the world-projected position. For textures
+  with dynamic resolution, the mirror is still accurate (both halves share the same scale).
+- Full reprojection via `CameraViewProjInverse`/`CameraViewProj` cbuffer matrices is
+  planned for Phase 2.
+
+---
+
 ### Synchronized Pixel Shader Debugging
 **Branch:** `synced_debuggers`
 **Status:** In development
