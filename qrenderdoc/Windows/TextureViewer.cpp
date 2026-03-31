@@ -4179,6 +4179,106 @@ void TextureViewer::on_pixelHistory_clicked()
   ShowPixelHistory(false);
 }
 
+// Describes the buffer locations of stereo VP matrices discovered generically from shader
+// reflection. All matrix offsets are relative to the start of the constant buffer data
+// (i.e. indices into the bytebuf returned by GetBufferData(..., cbufByteOffset, ...)).
+struct StereoMatrixConfig
+{
+  bool valid = false;
+  ResourceId cbufId;
+  uint64_t cbufByteOffset = 0;
+  uint32_t viewProjOffset[2] = {};
+  uint32_t viewProjInvOffset[2] = {};
+  bool hasCameraPosAdjust = false;
+  uint32_t cameraPosAdjustOffset[2] = {};
+  uint32_t minBytesNeeded = 0;
+};
+
+// Returns 1=ViewProj, 2=ViewProjInverse, 3=CameraPosAdjust, 0=unknown.
+static int classifyStereoVarName(const rdcstr &name)
+{
+  QString n = QString::fromUtf8(name.c_str(), (int)name.size()).toLower();
+  bool isViewProj = n.contains(lit("viewproj")) || n.contains(lit("view_proj"));
+  bool isInverse = n.contains(lit("inv"));
+  if(isViewProj && isInverse)
+    return 2;
+  if(isViewProj)
+    return 1;
+  if(n.contains(lit("camerapos")) || n.contains(lit("eyepos")) || n.contains(lit("eyeoffset")) ||
+     n.contains(lit("posadjust")) || n.contains(lit("eyeadjust")))
+    return 3;
+  return 0;
+}
+
+// Searches all pixel-shader constant blocks for stereo VP matrix arrays using
+// shader reflection. No engine-specific byte offsets — every offset is read from
+// ShaderConstant::byteOffset and ShaderConstantType::arrayByteStride.
+static StereoMatrixConfig detectStereoMatrices(ICaptureContext &ctx)
+{
+  StereoMatrixConfig cfg;
+  const ShaderReflection *refl = ctx.CurPipelineState().GetShaderReflection(ShaderStage::Pixel);
+  if(!refl)
+    return cfg;
+
+  for(int bi = 0; bi < (int)refl->constantBlocks.size(); bi++)
+  {
+    const ConstantBlock &block = refl->constantBlocks[bi];
+    bool foundVP = false, foundVPInv = false;
+    StereoMatrixConfig candidate;
+
+    for(int vi = 0; vi < (int)block.variables.size(); vi++)
+    {
+      const ShaderConstant &var = block.variables[vi];
+      const ShaderConstantType &t = var.type;
+      int cls = classifyStereoVarName(var.name);
+
+      // float4x4[>=2] — stereo ViewProj or ViewProjInverse array.
+      if(t.elements >= 2 && t.rows == 4 && t.columns == 4 && t.baseType == VarType::Float)
+      {
+        uint32_t stride = (t.arrayByteStride > 0) ? t.arrayByteStride : 64u;
+        if(cls == 1)
+        {
+          candidate.viewProjOffset[0] = var.byteOffset;
+          candidate.viewProjOffset[1] = var.byteOffset + stride;
+          foundVP = true;
+        }
+        else if(cls == 2)
+        {
+          candidate.viewProjInvOffset[0] = var.byteOffset;
+          candidate.viewProjInvOffset[1] = var.byteOffset + stride;
+          foundVPInv = true;
+        }
+      }
+      // float4[>=2] — per-eye world-space camera position offset (optional).
+      else if(t.elements >= 2 && t.rows == 1 && t.columns == 4 && t.baseType == VarType::Float &&
+              cls == 3)
+      {
+        uint32_t stride = (t.arrayByteStride > 0) ? t.arrayByteStride : 16u;
+        candidate.cameraPosAdjustOffset[0] = var.byteOffset;
+        candidate.cameraPosAdjustOffset[1] = var.byteOffset + stride;
+        candidate.hasCameraPosAdjust = true;
+      }
+    }
+
+    if(foundVP && foundVPInv)
+    {
+      UsedDescriptor cbufDesc = ctx.CurPipelineState().GetConstantBlock(ShaderStage::Pixel, bi, 0);
+      if(cbufDesc.descriptor.resource != ResourceId())
+      {
+        candidate.cbufId = cbufDesc.descriptor.resource;
+        candidate.cbufByteOffset = cbufDesc.descriptor.byteOffset;
+        uint32_t maxEnd = qMax(candidate.viewProjOffset[1], candidate.viewProjInvOffset[1]) + 64u;
+        if(candidate.hasCameraPosAdjust)
+          maxEnd = qMax(maxEnd, candidate.cameraPosAdjustOffset[1] + 16u);
+        candidate.minBytesNeeded = maxEnd;
+        candidate.valid = true;
+        return candidate;
+      }
+    }
+  }
+  return cfg;
+}
+
 void TextureViewer::on_sbsToggle_toggled(bool checked)
 {
   m_SBSMapper.enabled = checked;
@@ -4195,24 +4295,94 @@ void TextureViewer::on_jumpOtherEye_clicked()
   if(!tex || tex->width == 0)
     return;
 
-  // m_PickedPoint is stored in base texture coordinates with Y possibly flipped.
-  // X is unaffected by Y-flip, so we read it directly.
   int halfWidth = (int)(tex->width / 2);
   int srcX = m_PickedPoint.x();
-  int otherX = (srcX < halfWidth) ? srcX + halfWidth : srcX - halfWidth;
+  int otherX_fallback = (srcX < halfWidth) ? srcX + halfWidth : srcX - halfWidth;
 
-  if(otherX < 0 || otherX >= (int)tex->width)
+  if(otherX_fallback < 0 || otherX_fallback >= (int)tex->width)
     return;
 
-  // Un-flip Y to obtain the logical base coordinate that GotoLocation expects.
+  // Un-flip Y to get the logical base coordinate that GotoLocation expects.
   int logicalY = m_PickedPoint.y();
   if(ShouldFlipForGL())
     logicalY = (int)(tex->height - 1) - logicalY;
   if(m_TexDisplay.flipY)
     logicalY = (int)(tex->height - 1) - logicalY;
 
-  // GotoLocation takes mip-level coordinates.
-  GotoLocation(MipCoordFromBase(otherX, tex->width), MipCoordFromBase(logicalY, tex->height));
+  uint32_t eyeIndex = (srcX < halfWidth) ? 0u : 1u;
+  float monoUVx = (float)(srcX - (int)eyeIndex * halfWidth) / (float)halfWidth;
+  float monoUVy = (float)logicalY / (float)tex->height;
+  uint32_t texW = tex->width;
+  uint32_t texH = tex->height;
+
+  // Phase 2: try world-space reprojection using VP matrices discovered from reflection.
+  // detectStereoMatrices searches all PS constant blocks for float4x4[>=2] arrays
+  // whose names indicate ViewProj / ViewProjInverse — no engine-specific offsets.
+  StereoMatrixConfig matCfg = detectStereoMatrices(m_Ctx);
+
+  Descriptor depthDesc = Following::GetDepthTarget(m_Ctx);
+  ResourceId depthId = depthDesc.resource;
+  uint32_t depthX = (uint32_t)srcX;
+  uint32_t depthY = (uint32_t)logicalY;
+
+  QPoint result(-1, -1);
+  bool done = false;
+
+  m_Ctx.Replay().AsyncInvoke(lit("JumpOtherEye"), [&result, &done, monoUVx, monoUVy, eyeIndex, texW,
+                                                   texH, logicalY, otherX_fallback, matCfg, depthId,
+                                                   depthX, depthY](IReplayController *r) {
+    // Phase 2: use discovered VP matrices if available and depth is usable.
+    if(matCfg.valid && depthId != ResourceId())
+    {
+      bytebuf cbufData =
+          r->GetBufferData(matCfg.cbufId, matCfg.cbufByteOffset, matCfg.minBytesNeeded);
+      PixelValue depthVal = r->PickPixel(depthId, depthX, depthY, {}, CompType::Depth);
+      float depth = depthVal.floatValue[0];
+
+      if(cbufData.size() >= matCfg.minBytesNeeded && depth > 0.0f && depth < 1.0f)
+      {
+        VRFrameBufferMatrices mats = {};
+        memcpy(mats.viewProj[0], cbufData.data() + matCfg.viewProjOffset[0], 64);
+        memcpy(mats.viewProj[1], cbufData.data() + matCfg.viewProjOffset[1], 64);
+        memcpy(mats.viewProjInverse[0], cbufData.data() + matCfg.viewProjInvOffset[0], 64);
+        memcpy(mats.viewProjInverse[1], cbufData.data() + matCfg.viewProjInvOffset[1], 64);
+        if(matCfg.hasCameraPosAdjust)
+        {
+          mats.hasCameraPosAdjust = true;
+          memcpy(mats.cameraPosAdjust[0], cbufData.data() + matCfg.cameraPosAdjustOffset[0], 16);
+          memcpy(mats.cameraPosAdjust[1], cbufData.data() + matCfg.cameraPosAdjustOffset[1], 16);
+        }
+
+        float otherMonoUVx = 0.0f, otherMonoUVy = 0.0f;
+        if(SBSMapper::reproject(monoUVx, monoUVy, depth, eyeIndex, mats, otherMonoUVx, otherMonoUVy))
+        {
+          uint32_t otherEye = 1u - eyeIndex;
+          int otherX = (int)((otherMonoUVx + (float)otherEye) * 0.5f * (float)texW);
+          int otherY = (int)(otherMonoUVy * (float)texH);
+          if(otherX >= 0 && otherX < (int)texW && otherY >= 0 && otherY < (int)texH)
+          {
+            result = QPoint(otherX, otherY);
+            done = true;
+            return;
+          }
+        }
+      }
+    }
+
+    // Phase 1 fallback: simple horizontal mirror.
+    result = QPoint(otherX_fallback, logicalY);
+    done = true;
+  });
+
+  // Wait up to one second for the replay thread.
+  for(int i = 0; !done && i < 200; i++)
+    QThread::msleep(5);
+
+  if(!done || result.x() < 0)
+    return;
+
+  // result is in unflipped base coords; GotoLocation expects mip-level coords.
+  GotoLocation(MipCoordFromBase(result.x(), tex->width), MipCoordFromBase(result.y(), tex->height));
 }
 
 void TextureViewer::ShowPixelHistory(bool failedDebug)

@@ -31,11 +31,28 @@ picked pixel in one eye to the corresponding location in the other eye.
   pixel mapping. Phase 1 uses a simple horizontal mirror (no projection matrices needed).
   Designed to accept a Phase 2 matrix-reprojection path for geometrically accurate mapping.
 
-**Known limitations (Phase 1):**
-- The mapped pixel is the mirror position, not the world-projected position. For textures
-  with dynamic resolution, the mirror is still accurate (both halves share the same scale).
-- Full reprojection via `CameraViewProjInverse`/`CameraViewProj` cbuffer matrices is
-  planned for Phase 2.
+**Phase 2 — matrix-based reprojection (same button, automatic upgrade):**
+When the pixel shader at the current EID has any constant buffer containing
+`float4x4[>=2]` arrays whose names indicate `ViewProj` and `ViewProjInverse` (detected
+generically via shader reflection), the jump uses world-space reprojection for a
+geometrically accurate result. The algorithm is ported from `ConvertMonoUVToOtherEye`
+in `Common/VR.hlsli`. Falls back silently to Phase 1 (simple mirror) when no stereo
+matrices are found, the depth buffer is unavailable, or the reprojected UV lands
+outside [0,1].
+
+Detection uses `ShaderConstant::byteOffset` and `ShaderConstantType::arrayByteStride`
+from `ShaderReflection` — no engine-specific hardcoded offsets. A `float4[>=2]` array
+whose name suggests a per-eye camera position (`CameraPosAdjust`, `EyePos`, etc.) is
+also extracted when present and used to correct IPD offset.
+
+The NDC depth at the source pixel is read from the depth-stencil target bound at the
+current event via `IReplayController::PickPixel`.
+
+**Known limitations:**
+- Detection relies on variable names containing `viewproj`/`view_proj` (case-insensitive).
+  Engines that use completely opaque names (e.g. `m0`, `data[0]`) will fall back to Phase 1.
+- Dynamic resolution is not accounted for in the UV→pixel conversion; pixels in the
+  unrendered border region will fall back to Phase 1.
 
 ---
 
