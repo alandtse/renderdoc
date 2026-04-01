@@ -4297,14 +4297,14 @@ static rdcarray<StereoMatrixConfig> detectAllStereoMatrices(ICaptureContext &ctx
       if(t.elements >= 2 && t.rows == 4 && t.columns == 4 && t.baseType == VarType::Float)
       {
         uint32_t stride = (t.arrayByteStride > 0) ? t.arrayByteStride : 64u;
-        if(cls == 1)
+        if(cls == 1 && !foundVP)
         {
           candidate.viewProjOffset[0] = var.byteOffset;
           candidate.viewProjOffset[1] = var.byteOffset + stride;
           candidate.viewProjVarName = QString::fromUtf8(var.name.c_str(), (int)var.name.size());
           foundVP = true;
         }
-        else if(cls == 2)
+        else if(cls == 2 && !foundVPInv)
         {
           candidate.viewProjInvOffset[0] = var.byteOffset;
           candidate.viewProjInvOffset[1] = var.byteOffset + stride;
@@ -4760,14 +4760,14 @@ void TextureViewer::updateSBSCompare()
   uint32_t srcPickX = (uint32_t)srcX;
   uint32_t srcPickY = (uint32_t)logicalY;
 
-  QPoint result(-1, -1);
-  PixelValue srcVal = {}, dstVal = {};
-  bool done = false;
-
-  m_Ctx.Replay().AsyncInvoke(lit("SBSCompare"), [&result, &done, monoUVx, monoUVy, eyeIndex, logicalY,
+  // Fire-and-forget: do all GPU work on the replay thread, then post UI update via GUIInvoke.
+  m_Ctx.Replay().AsyncInvoke(lit("SBSCompare"), [this, monoUVx, monoUVy, eyeIndex, logicalY,
                                                  otherX_fallback, matCandidates, sbsCbufferIndex,
                                                  depthId, depthX, depthY, dynResHalfW, dynResScaleY,
-                                                 renderedW, renderedH](IReplayController *r) {
+                                                 renderedW, renderedH, texId, texSub, texTypeCast,
+                                                 srcPickX, srcPickY](IReplayController *r) {
+    QPoint result(-1, -1);
+
     if(!matCandidates.empty() && depthId != ResourceId())
     {
       PixelValue depthVal = r->PickPixel(depthId, depthX, depthY, {}, CompType::Depth);
@@ -4805,78 +4805,64 @@ void TextureViewer::updateSBSCompare()
             if(otherX >= 0 && otherX < renderedW && otherY >= 0 && otherY < renderedH)
             {
               result = QPoint(otherX, otherY);
-              done = true;
-              return;
+              break;
             }
           }
         }
       }
     }
-    result = QPoint(otherX_fallback, logicalY);
-    done = true;
+
+    if(result.x() < 0)
+      result = QPoint(otherX_fallback, logicalY);
+
+    PixelValue srcVal = {}, dstVal = {};
+    if(texId != ResourceId() && result.x() >= 0)
+    {
+      srcVal = r->PickPixel(texId, srcPickX, srcPickY, texSub, texTypeCast);
+      dstVal = r->PickPixel(texId, (uint32_t)result.x(), (uint32_t)result.y(), texSub, texTypeCast);
+    }
+
+    GUIInvoke::call(this, [this, srcVal, dstVal, eyeIndex]() {
+      if(!m_SBSEyeCompare)
+        return;
+      auto fmtVal = [](float v) { return QFormatStr("%1").arg((double)v, 9, 'f', 4); };
+      auto fmtDelta = [](float d) -> QString {
+        QString s = QFormatStr("%1").arg((double)d, 9, 'f', 4);
+        const char *col = d < 0.001f  ? "#888888"
+                          : d < 0.01f ? "#ffcc44"
+                          : d < 0.1f  ? "#ff8800"
+                                      : "#ff4444";
+        return QFormatStr("<span style='color:%1'>%2</span>").arg(QLatin1String(col)).arg(s);
+      };
+
+      QString srcEye = eyeIndex == 0 ? lit("L") : lit("R");
+      QString dstEye = eyeIndex == 0 ? lit("R") : lit("L");
+      QString srcRow = QFormatStr("%1 %2 %3 %4")
+                           .arg(fmtVal(srcVal.floatValue[0]))
+                           .arg(fmtVal(srcVal.floatValue[1]))
+                           .arg(fmtVal(srcVal.floatValue[2]))
+                           .arg(fmtVal(srcVal.floatValue[3]));
+      QString dstRow = QFormatStr("%1 %2 %3 %4")
+                           .arg(fmtVal(dstVal.floatValue[0]))
+                           .arg(fmtVal(dstVal.floatValue[1]))
+                           .arg(fmtVal(dstVal.floatValue[2]))
+                           .arg(fmtVal(dstVal.floatValue[3]));
+      QString deltaRow = QFormatStr("%1 %2 %3 %4")
+                             .arg(fmtDelta(qAbs(dstVal.floatValue[0] - srcVal.floatValue[0])))
+                             .arg(fmtDelta(qAbs(dstVal.floatValue[1] - srcVal.floatValue[1])))
+                             .arg(fmtDelta(qAbs(dstVal.floatValue[2] - srcVal.floatValue[2])))
+                             .arg(fmtDelta(qAbs(dstVal.floatValue[3] - srcVal.floatValue[3])));
+      QString text = QFormatStr("<pre><b>%1:</b> %2\n<b>%3:</b> %4\n<b>D:</b>  %5</pre>")
+                         .arg(srcEye)
+                         .arg(srcRow)
+                         .arg(dstEye)
+                         .arg(dstRow)
+                         .arg(deltaRow);
+      m_SBSEyeCompare->setTextFormat(Qt::RichText);
+      m_SBSEyeCompare->setText(text);
+      m_SBSEyeCompare->show();
+    });
   });
-
-  for(int i = 0; !done && i < 200; i++)
-    QThread::msleep(5);
-
-  if(!done || result.x() < 0)
-    return;
-
-  uint32_t dstPickX = (uint32_t)result.x();
-  uint32_t dstPickY = (uint32_t)result.y();
-  if(texId != ResourceId())
-  {
-    bool valsDone = false;
-    m_Ctx.Replay().AsyncInvoke(
-        lit("SBSCompareVals"), [&srcVal, &dstVal, &valsDone, texId, texSub, texTypeCast, srcPickX,
-                                srcPickY, dstPickX, dstPickY](IReplayController *r) {
-          srcVal = r->PickPixel(texId, srcPickX, srcPickY, texSub, texTypeCast);
-          dstVal = r->PickPixel(texId, dstPickX, dstPickY, texSub, texTypeCast);
-          valsDone = true;
-        });
-    for(int i = 0; !valsDone && i < 200; i++)
-      QThread::msleep(5);
-  }
-
-  if(m_SBSEyeCompare)
-  {
-    auto fmtVal = [](float v) { return QFormatStr("%1").arg((double)v, 9, 'f', 4); };
-    auto fmtDelta = [](float d) -> QString {
-      QString s = QFormatStr("%1").arg((double)d, 9, 'f', 4);
-      const char *col = d < 0.001f  ? "#888888"
-                        : d < 0.01f ? "#ffcc44"
-                        : d < 0.1f  ? "#ff8800"
-                                    : "#ff4444";
-      return QFormatStr("<span style='color:%1'>%2</span>").arg(QLatin1String(col)).arg(s);
-    };
-
-    QString srcEye = eyeIndex == 0 ? lit("L") : lit("R");
-    QString dstEye = eyeIndex == 0 ? lit("R") : lit("L");
-    QString srcRow = QFormatStr("%1 %2 %3 %4")
-                         .arg(fmtVal(srcVal.floatValue[0]))
-                         .arg(fmtVal(srcVal.floatValue[1]))
-                         .arg(fmtVal(srcVal.floatValue[2]))
-                         .arg(fmtVal(srcVal.floatValue[3]));
-    QString dstRow = QFormatStr("%1 %2 %3 %4")
-                         .arg(fmtVal(dstVal.floatValue[0]))
-                         .arg(fmtVal(dstVal.floatValue[1]))
-                         .arg(fmtVal(dstVal.floatValue[2]))
-                         .arg(fmtVal(dstVal.floatValue[3]));
-    QString deltaRow = QFormatStr("%1 %2 %3 %4")
-                           .arg(fmtDelta(qAbs(dstVal.floatValue[0] - srcVal.floatValue[0])))
-                           .arg(fmtDelta(qAbs(dstVal.floatValue[1] - srcVal.floatValue[1])))
-                           .arg(fmtDelta(qAbs(dstVal.floatValue[2] - srcVal.floatValue[2])))
-                           .arg(fmtDelta(qAbs(dstVal.floatValue[3] - srcVal.floatValue[3])));
-    QString text = QFormatStr("<pre><b>%1:</b> %2\n<b>%3:</b> %4\n<b>D:</b>  %5</pre>")
-                       .arg(srcEye)
-                       .arg(srcRow)
-                       .arg(dstEye)
-                       .arg(dstRow)
-                       .arg(deltaRow);
-    m_SBSEyeCompare->setTextFormat(Qt::RichText);
-    m_SBSEyeCompare->setText(text);
-    m_SBSEyeCompare->show();
-  }
 }
 
 void TextureViewer::on_sbsSettings_clicked()
