@@ -20,9 +20,9 @@ struct VRFrameBufferMatrices
 
 // Maps pixels between left and right eyes in a side-by-side (SBS) stereo texture.
 //
-// Phase 1 (simple mirror): pixel at x maps to x ± texWidth/2. No matrix data required.
+// Simple mirror: pixel at x maps to x ± texWidth/2. No matrix data required.
 //
-// Phase 2 (matrix reproject): world-space reprojection via per-eye ViewProj /
+// Matrix reprojection: world-space reprojection via per-eye ViewProj /
 //   ViewProjInverse matrices, detected generically from the current draw's shader
 //   reflection. Ported from ConvertMonoUVToOtherEye in skyrim-community-shaders VR.hlsli.
 class SBSMapper
@@ -33,11 +33,11 @@ public:
   // Returns 0 for the left eye (x < texWidth/2) or 1 for the right eye (x >= texWidth/2).
   uint32_t eyeIndexForPixel(QPoint px, uint32_t texWidth) const;
 
-  // Phase 1 — simple horizontal mirror.
+  // Simple horizontal mirror fallback.
   // Returns {-1, -1} when enabled is false or coords are out of bounds.
   QPoint otherEyePixel(QPoint px, uint32_t texWidth, uint32_t texHeight) const;
 
-  // Phase 2 — world-space reprojection.
+  // World-space reprojection via ViewProj/ViewProjInverse matrices.
   // monoUVx/monoUVy: per-eye UV in [0,1] (unflipped, not DR-adjusted).
   // depth: NDC depth in [0,1] from the depth buffer at this pixel.
   // eyeIndex: 0 (left) or 1 (right).

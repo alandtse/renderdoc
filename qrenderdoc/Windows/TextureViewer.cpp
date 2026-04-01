@@ -4490,7 +4490,7 @@ void TextureViewer::on_jumpOtherEye_clicked()
   // Matrix reprojection: try world-space reprojection using VP matrices discovered from reflection.
   // Skipped when the user has disabled it in the settings dialog.
   rdcarray<StereoMatrixConfig> matCandidates;
-  if(m_SBSPhase2Enabled)
+  if(m_SBSMatrixReprojEnabled)
   {
     matCandidates = detectAllStereoMatrices(m_Ctx);
   }
@@ -4689,7 +4689,7 @@ void TextureViewer::updateSBSCompare()
   float monoUVy = (float)logicalY / ((float)texH * dynResScaleY);
 
   rdcarray<StereoMatrixConfig> matCandidates;
-  if(m_SBSPhase2Enabled)
+  if(m_SBSMatrixReprojEnabled)
   {
     matCandidates = detectAllStereoMatrices(m_Ctx);
   }
@@ -4861,13 +4861,13 @@ void TextureViewer::on_sbsSettings_clicked()
   QFormLayout *form = new QFormLayout;
 
   // --- Matrix reprojection toggle ---
-  QCheckBox *phase2Check = new QCheckBox(tr("Use matrix reprojection"), &dlg);
-  phase2Check->setChecked(m_SBSPhase2Enabled);
-  phase2Check->setToolTip(
+  QCheckBox *matReprojCheck = new QCheckBox(tr("Use matrix reprojection"), &dlg);
+  matReprojCheck->setChecked(m_SBSMatrixReprojEnabled);
+  matReprojCheck->setToolTip(
       tr("When enabled, uses ViewProj/ViewProjInverse matrices found in the pixel shader's\n"
          "constant buffers for geometrically accurate reprojection. Disable to force\n"
          "simple horizontal mirror if the wrong cbuffer is being detected."));
-  form->addRow(phase2Check);
+  form->addRow(matReprojCheck);
 
   // --- cbuffer selection ---
   QComboBox *cbufCombo = new QComboBox(&dlg);
@@ -5097,7 +5097,7 @@ void TextureViewer::on_sbsSettings_clicked()
 
   if(dlg.exec() == QDialog::Accepted)
   {
-    m_SBSPhase2Enabled = phase2Check->isChecked();
+    m_SBSMatrixReprojEnabled = matReprojCheck->isChecked();
     m_SBSCbufferIndex = cbufCombo->currentData().toInt();
     m_SBSDynResW = wBox->value();
     m_SBSDynResH = hBox->value();

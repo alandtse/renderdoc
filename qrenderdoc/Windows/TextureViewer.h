@@ -407,8 +407,8 @@ private:
   // Pixel value comparison label populated after "Other Eye" jump.
   QLabel *m_SBSEyeCompare = NULL;
 
-  // When false, matrix reprojection is skipped and mirror fallback is always used.
-  bool m_SBSPhase2Enabled = true;
+  // When false, matrix reprojection is skipped and the simple mirror fallback is always used.
+  bool m_SBSMatrixReprojEnabled = true;
 
   // Which detected cbuffer candidate to use for matrix reprojection (-1 = auto, 0+ = specific index).
   int m_SBSCbufferIndex = -1;
