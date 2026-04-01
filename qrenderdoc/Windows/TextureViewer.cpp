@@ -3189,6 +3189,11 @@ void TextureViewer::OnCaptureClosed()
   ui->viewTexBuffer->setEnabled(false);
   ui->jumpOtherEye->setVisible(false);
   ui->jumpOtherEye->setEnabled(false);
+  if(m_SBSEyeCompare)
+    m_SBSEyeCompare->hide();
+  for(int i = 0; i < 4; i++)
+    if(m_PickedCrosshair[i])
+      m_PickedCrosshair[i]->hide();
 
   UI_UpdateChannels();
 }
@@ -4514,53 +4519,48 @@ void TextureViewer::on_jumpOtherEye_clicked()
 
   QPoint result(-1, -1);
   PixelValue srcVal = {}, dstVal = {};
-  bool done = false;
 
-  m_Ctx.Replay().AsyncInvoke(lit("JumpOtherEye"), [&result, &done, &srcVal, &dstVal, monoUVx,
-                                                   monoUVy, eyeIndex, texH, logicalY,
-                                                   otherX_fallback, matCandidates, sbsCbufferIndex,
-                                                   depthId, depthX, depthY, dynResHalfW,
-                                                   dynResScaleY, renderedW, renderedH, texId,
-                                                   texSub, texTypeCast, srcPickX, srcPickY,
-                                                   useManualMats, manualMats](IReplayController *r) {
-    // Matrix reprojection: try VP matrix reprojection. When auto (sbsCbufferIndex < 0), iterate all
-    // detected candidates and use the first whose result lands within the rendered region.
-    // A user-selected candidate (sbsCbufferIndex >= 0) is tried exclusively.
+  m_Ctx.Replay().BlockInvoke([&result, &srcVal, &dstVal, monoUVx, monoUVy, eyeIndex, texH, logicalY,
+                              otherX_fallback, matCandidates, sbsCbufferIndex, depthId, depthX,
+                              depthY, dynResHalfW, dynResScaleY, renderedW, renderedH, texId,
+                              texSub, texTypeCast, srcPickX, srcPickY, useManualMats,
+                              manualMats](IReplayController *r) {
+    // Compute the reprojected position. Use a nested lambda so we can return early without
+    // skipping the pixel-pick at the bottom.
     // When useManualMats is true, use the pre-built manualMats directly without reading cbuf.
-    if(useManualMats && depthId != ResourceId())
-    {
-      PixelValue depthVal = r->PickPixel(depthId, depthX, depthY, {}, CompType::Depth);
-      float depth = depthVal.floatValue[0];
-      if(depth > 0.0f && depth < 1.0f)
-      {
-        float otherMonoUVx = 0.0f, otherMonoUVy = 0.0f;
-        if(SBSMapper::reproject(monoUVx, monoUVy, depth, eyeIndex, manualMats, otherMonoUVx,
-                                otherMonoUVy))
-        {
-          uint32_t otherEye = 1u - eyeIndex;
-          int otherX = qRound((otherMonoUVx + (float)otherEye) * dynResHalfW);
-          int otherY = qRound(otherMonoUVy * (float)texH * dynResScaleY);
-          if(otherX >= 0 && otherX < renderedW && otherY >= 0 && otherY < renderedH)
-          {
-            result = QPoint(otherX, otherY);
-            done = true;
-            return;
-          }
-        }
-      }
-    }
-    if(!useManualMats && !matCandidates.empty() && depthId != ResourceId())
-    {
-      PixelValue depthVal = r->PickPixel(depthId, depthX, depthY, {}, CompType::Depth);
-      float depth = depthVal.floatValue[0];
+    auto computeResult = [&]() -> QPoint {
+      if(depthId == ResourceId())
+        return QPoint(otherX_fallback, logicalY);
 
-      if(depth > 0.0f && depth < 1.0f)
+      PixelValue depthVal = r->PickPixel(depthId, depthX, depthY, {}, CompType::Depth);
+      float depth = depthVal.floatValue[0];
+      if(depth <= 0.0f || depth >= 1.0f)
+        return QPoint(otherX_fallback, logicalY);
+
+      auto tryReproject = [&](const VRFrameBufferMatrices &mats) -> QPoint {
+        float otherMonoUVx = 0.0f, otherMonoUVy = 0.0f;
+        if(!SBSMapper::reproject(monoUVx, monoUVy, depth, eyeIndex, mats, otherMonoUVx, otherMonoUVy))
+          return QPoint(-1, -1);
+        uint32_t otherEye = 1u - eyeIndex;
+        int otherX = qRound((otherMonoUVx + (float)otherEye) * dynResHalfW);
+        int otherY = qRound(otherMonoUVy * (float)texH * dynResScaleY);
+        if(otherX >= 0 && otherX < renderedW && otherY >= 0 && otherY < renderedH)
+          return QPoint(otherX, otherY);
+        return QPoint(-1, -1);
+      };
+
+      if(useManualMats)
+      {
+        QPoint r2 = tryReproject(manualMats);
+        if(r2.x() >= 0)
+          return r2;
+      }
+      else
       {
         int candidateStart = (sbsCbufferIndex >= 0 && sbsCbufferIndex < (int)matCandidates.size())
                                  ? sbsCbufferIndex
                                  : 0;
         int candidateEnd = (sbsCbufferIndex >= 0) ? candidateStart + 1 : (int)matCandidates.size();
-
         for(int ci = candidateStart; ci < candidateEnd; ci++)
         {
           const StereoMatrixConfig &matCfg = matCandidates[ci];
@@ -4568,7 +4568,6 @@ void TextureViewer::on_jumpOtherEye_clicked()
               r->GetBufferData(matCfg.cbufId, matCfg.cbufByteOffset, matCfg.minBytesNeeded);
           if((int)cbufData.size() < (int)matCfg.minBytesNeeded)
             continue;
-
           VRFrameBufferMatrices mats = {};
           memcpy(mats.viewProj[0], cbufData.data() + matCfg.viewProjOffset[0], 64);
           memcpy(mats.viewProj[1], cbufData.data() + matCfg.viewProjOffset[1], 64);
@@ -4580,56 +4579,26 @@ void TextureViewer::on_jumpOtherEye_clicked()
             memcpy(mats.cameraPosAdjust[0], cbufData.data() + matCfg.cameraPosAdjustOffset[0], 16);
             memcpy(mats.cameraPosAdjust[1], cbufData.data() + matCfg.cameraPosAdjustOffset[1], 16);
           }
-
-          float otherMonoUVx = 0.0f, otherMonoUVy = 0.0f;
-          if(SBSMapper::reproject(monoUVx, monoUVy, depth, eyeIndex, mats, otherMonoUVx, otherMonoUVy))
-          {
-            // Back-convert from per-eye rendered UV to full-texture pixel coords.
-            // otherEye * dynResHalfW is the x origin of the other eye's rendered region.
-            uint32_t otherEye = 1u - eyeIndex;
-            int otherX = qRound((otherMonoUVx + (float)otherEye) * dynResHalfW);
-            int otherY = qRound(otherMonoUVy * (float)texH * dynResScaleY);
-            // Reject if outside the rendered region — wrong matrices produced a plausible UV.
-            if(otherX >= 0 && otherX < renderedW && otherY >= 0 && otherY < renderedH)
-            {
-              result = QPoint(otherX, otherY);
-              done = true;
-              return;
-            }
-            // Out of bounds — try next candidate
-          }
+          QPoint r2 = tryReproject(mats);
+          if(r2.x() >= 0)
+            return r2;
         }
       }
+      return QPoint(otherX_fallback, logicalY);
+    };
+
+    result = computeResult();
+
+    // Pick both pixel values while still on the replay thread.
+    if(texId != ResourceId() && result.x() >= 0)
+    {
+      srcVal = r->PickPixel(texId, srcPickX, srcPickY, texSub, texTypeCast);
+      dstVal = r->PickPixel(texId, (uint32_t)result.x(), (uint32_t)result.y(), texSub, texTypeCast);
     }
+  });
 
-    // Mirror fallback: simple horizontal mirror.
-    result = QPoint(otherX_fallback, logicalY);
-    done = true;
-  });    // end AsyncInvoke lambda — pick both pixel values in a separate invoke so we have the result
-
-  // Wait up to one second for the replay thread.
-  for(int i = 0; !done && i < 200; i++)
-    QThread::msleep(5);
-
-  if(!done || result.x() < 0)
+  if(result.x() < 0)
     return;
-
-  // Now pick both pixel values for the comparison label.
-  uint32_t dstPickX = (uint32_t)result.x();
-  uint32_t dstPickY = (uint32_t)result.y();
-  if(texId != ResourceId())
-  {
-    bool valsDone = false;
-    m_Ctx.Replay().AsyncInvoke(
-        lit("JumpOtherEyeVals"), [&srcVal, &dstVal, &valsDone, texId, texSub, texTypeCast, srcPickX,
-                                  srcPickY, dstPickX, dstPickY](IReplayController *r) {
-          srcVal = r->PickPixel(texId, srcPickX, srcPickY, texSub, texTypeCast);
-          dstVal = r->PickPixel(texId, dstPickX, dstPickY, texSub, texTypeCast);
-          valsDone = true;
-        });
-    for(int i = 0; !valsDone && i < 200; i++)
-      QThread::msleep(5);
-  }
 
   // Update the comparison label with src / dst / diff using color-coded HTML.
   if(m_SBSEyeCompare)
@@ -5025,6 +4994,7 @@ void TextureViewer::on_sbsSettings_clicked()
     QStringList lines = s.split(QLatin1Char('\n'), QString::SkipEmptyParts);
     if(lines.size() < 4)
       return false;
+    float tmp[16] = {};
     for(int r = 0; r < 4; r++)
     {
       QStringList vals = lines[r].split(QLatin1Char(','));
@@ -5033,11 +5003,12 @@ void TextureViewer::on_sbsSettings_clicked()
       for(int c = 0; c < 4; c++)
       {
         bool ok;
-        m[r * 4 + c] = vals[c].trimmed().toFloat(&ok);
+        tmp[r * 4 + c] = vals[c].trimmed().toFloat(&ok);
         if(!ok)
           return false;
       }
     }
+    memcpy(m, tmp, 64);
     return true;
   };
 

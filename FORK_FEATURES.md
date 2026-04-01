@@ -13,7 +13,7 @@ Include the branch or commit where the feature landed.
 
 ### VR SBS "Jump to Other Eye" Pixel Navigation
 **Branch:** `vr_sbs_eye_mapping`
-**Status:** Phase 1 — simple mirror (no matrix reprojection)
+**Status:** Phase 1 & Phase 2 — simple mirror and matrix reprojection both implemented
 
 In VR captures that render both eyes side-by-side into a single texture (left eye in
 `x ∈ [0, W/2)`, right eye in `x ∈ [W/2, W)`), it is useful to jump directly from a
