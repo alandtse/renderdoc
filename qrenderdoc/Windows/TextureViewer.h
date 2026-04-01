@@ -198,7 +198,7 @@ private slots:
   void on_pixelHistory_clicked();
   void on_sbsToggle_toggled(bool checked);
   void on_jumpOtherEye_clicked();
-  void on_sbsSettings_clicked();
+  void updateSBSCompare();
 
   void on_customCreate_clicked();
   void on_customEdit_clicked();
@@ -259,6 +259,8 @@ private:
 
   void UI_UpdatePickedCrosshair();
   float SBSDynResHalfWidth();
+  bool detectSBSFrame() const;
+  void on_sbsSettings_clicked();
 
   void HighlightUsage();
 
@@ -396,21 +398,18 @@ private:
 
   SBSMapper m_SBSMapper;
 
-  // Small badge label shown at the top-left of the render area displaying the picked pixel.
-  // Parented to the render container (not the GPU-rendered widget) to avoid native-window conflicts.
-  QLabel *m_PickedLabel = NULL;
   QWidget *m_PickedCrosshair = NULL;
 
   // Pixel value comparison label populated after "Other Eye" jump.
   QLabel *m_SBSEyeCompare = NULL;
 
-  // When false, Phase 2 matrix reprojection is skipped and Phase 1 mirror is always used.
+  // When false, matrix reprojection is skipped and mirror fallback is always used.
   bool m_SBSPhase2Enabled = true;
 
-  // Which detected cbuffer candidate to use for Phase 2 (-1 = auto, 0+ = specific index).
+  // Which detected cbuffer candidate to use for matrix reprojection (-1 = auto, 0+ = specific index).
   int m_SBSCbufferIndex = -1;
 
-  // Per-slot byte offset overrides for Phase 2 VP matrices (-1 = use auto-detected offset).
+  // Per-slot byte offset overrides for VP matrices (-1 = use auto-detected offset).
   int m_SBSVPEye0Offset = -1;
   int m_SBSVPEye1Offset = -1;
   int m_SBSVPInvEye0Offset = -1;
@@ -421,4 +420,16 @@ private:
   // Dynamic resolution override for SBS reprojection (0 = auto-detect from viewport).
   int m_SBSDynResW = 0;
   int m_SBSDynResH = 0;
+
+  // When true, SBS mode is auto-enabled/disabled based on frame heuristics.
+  bool m_SBSAutoEnable = true;
+
+  // Tracks the last pixel pick that triggered an auto compare update.
+  QPoint m_SBSLastAutoComparePick = QPoint(-1, -1);
+
+  // Manual matrix override members (used when m_SBSUseManualMatrices is true).
+  bool m_SBSUseManualMatrices = false;
+  float m_SBSManualVP[2][16];
+  float m_SBSManualVPInv[2][16];
+  float m_SBSManualCamPos[2][4];
 };

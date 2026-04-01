@@ -528,29 +528,13 @@
     <item>
      <widget class="QToolButton" name="sbsToggle">
       <property name="toolTip">
-       <string>Enable SBS (side-by-side) stereo mode. Left half = left eye, right half = right eye. Enables jumping between corresponding pixels in each eye.</string>
+       <string>Enable SBS (side-by-side) stereo mode. Left half = left eye, right half = right eye. Enables jumping between corresponding pixels in each eye. Right-click for settings.</string>
       </property>
       <property name="text">
        <string>SBS</string>
       </property>
       <property name="checkable">
        <bool>true</bool>
-      </property>
-      <property name="toolButtonStyle">
-       <enum>Qt::ToolButtonTextOnly</enum>
-      </property>
-      <property name="autoRaise">
-       <bool>true</bool>
-      </property>
-     </widget>
-    </item>
-    <item>
-     <widget class="QToolButton" name="sbsSettings">
-      <property name="toolTip">
-       <string>SBS stereo settings: override dynamic resolution rendered size for accurate eye reprojection.</string>
-      </property>
-      <property name="text">
-       <string>⚙</string>
       </property>
       <property name="toolButtonStyle">
        <enum>Qt::ToolButtonTextOnly</enum>
