@@ -701,11 +701,14 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
   QObject::connect(ui->pixelContext, &CustomPaintWidget::keyPress, this,
                    &TextureViewer::render_keyPress);
 
-  m_PickedCrosshair = new QWidget(ui->render->parentWidget());
-  m_PickedCrosshair->setStyleSheet(
-      lit("background: transparent; border: 1px solid rgba(255, 204, 68, 220);"));
-  m_PickedCrosshair->setAttribute(Qt::WA_TransparentForMouseEvents);
-  m_PickedCrosshair->hide();
+  // Four 1px solid yellow border-line widgets (top, bottom, left, right).
+  for(int i = 0; i < 4; i++)
+  {
+    m_PickedCrosshair[i] = new QWidget(ui->render->parentWidget());
+    m_PickedCrosshair[i]->setStyleSheet(lit("background: rgba(255, 204, 68, 220);"));
+    m_PickedCrosshair[i]->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_PickedCrosshair[i]->hide();
+  }
 
   // Eye comparison label — populated by on_jumpOtherEye_clicked, lives in pixelcontextgrid.
   // Actual grid insertion is done in the .ui file (row 3, colspan 2).
@@ -1171,11 +1174,13 @@ void TextureViewer::UI_UpdateStatusText()
     if(m_TexDisplay.customShaderId != ResourceId())
       pickedText += lit(")");
 
+    ui->jumpOtherEye->setVisible(m_SBSMapper.enabled);
     ui->jumpOtherEye->setEnabled(m_SBSMapper.enabled);
   }
   else
   {
     pickedText += tr("Right click to pick a pixel");
+    ui->jumpOtherEye->setVisible(m_SBSMapper.enabled);
     ui->jumpOtherEye->setEnabled(false);
   }
 
@@ -3182,6 +3187,7 @@ void TextureViewer::OnCaptureClosed()
   ui->saveTex->setEnabled(false);
   ui->locationGoto->setEnabled(false);
   ui->viewTexBuffer->setEnabled(false);
+  ui->jumpOtherEye->setVisible(false);
   ui->jumpOtherEye->setEnabled(false);
 
   UI_UpdateChannels();
@@ -4350,12 +4356,13 @@ static rdcarray<StereoMatrixConfig> detectAllStereoMatrices(ICaptureContext &ctx
 
 void TextureViewer::UI_UpdatePickedCrosshair()
 {
-  if(!m_PickedCrosshair)
+  if(!m_PickedCrosshair[0])
     return;
 
   if(m_PickedPoint.x() < 0 || m_Output == NULL)
   {
-    m_PickedCrosshair->hide();
+    for(int i = 0; i < 4; i++)
+      m_PickedCrosshair[i]->hide();
     return;
   }
 
@@ -4368,13 +4375,26 @@ void TextureViewer::UI_UpdatePickedCrosshair()
   float sx = ((float)m_PickedPoint.x() * scale + m_TexDisplay.xOffset) / dpr;
   float sy = ((float)m_PickedPoint.y() * scale + m_TexDisplay.yOffset) / dpr;
 
-  QPoint renderOrigin = ui->render->mapTo(m_PickedCrosshair->parentWidget(), QPoint(0, 0));
+  QPoint renderOrigin = ui->render->mapTo(m_PickedCrosshair[0]->parentWidget(), QPoint(0, 0));
   int x = renderOrigin.x() + (int)sx;
   int y = renderOrigin.y() + (int)sy;
 
-  m_PickedCrosshair->setGeometry(x, y, pixSize, pixSize);
-  m_PickedCrosshair->show();
-  m_PickedCrosshair->raise();
+  // Top, bottom, left side (excl. corners), right side (excl. corners).
+  int innerH = qMax(0, pixSize - 2);
+  m_PickedCrosshair[0]->setGeometry(x, y, pixSize, 1);                     // top
+  m_PickedCrosshair[1]->setGeometry(x, y + pixSize - 1, pixSize, 1);       // bottom
+  m_PickedCrosshair[2]->setGeometry(x, y + 1, 1, innerH);                  // left
+  m_PickedCrosshair[3]->setGeometry(x + pixSize - 1, y + 1, 1, innerH);    // right
+  for(int i = 0; i < 4; i++)
+  {
+    if(i >= 2 && innerH == 0)
+    {
+      m_PickedCrosshair[i]->hide();
+      continue;
+    }
+    m_PickedCrosshair[i]->show();
+    m_PickedCrosshair[i]->raise();
+  }
 }
 
 // Returns the x-coordinate of the SBS split point in texture pixels, accounting for dynamic
@@ -4404,6 +4424,7 @@ void TextureViewer::on_sbsToggle_clicked(bool checked)
   // Manual toggle disables auto-enable for this session.
   m_SBSAutoEnable = false;
   m_SBSMapper.enabled = checked;
+  ui->jumpOtherEye->setVisible(checked);
   ui->jumpOtherEye->setEnabled(checked && m_PickedPoint.x() >= 0);
   if(!checked && m_SBSEyeCompare)
     m_SBSEyeCompare->hide();

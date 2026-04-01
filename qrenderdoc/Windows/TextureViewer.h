@@ -398,7 +398,11 @@ private:
 
   SBSMapper m_SBSMapper;
 
-  QWidget *m_PickedCrosshair = NULL;
+  // Four 1px solid border-line widgets forming a box around the picked pixel.
+  // Using 4 thin widgets instead of one with a transparent interior avoids
+  // the backing-store compositing issue where "transparent" shows the parent's
+  // grey background instead of the OpenGL content below.
+  QWidget *m_PickedCrosshair[4] = {};
 
   // Pixel value comparison label populated after "Other Eye" jump.
   QLabel *m_SBSEyeCompare = NULL;
