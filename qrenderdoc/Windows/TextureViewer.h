@@ -403,6 +403,9 @@ private:
   // When false, Phase 2 matrix reprojection is skipped and Phase 1 mirror is always used.
   bool m_SBSPhase2Enabled = true;
 
+  // Which detected cbuffer candidate to use for Phase 2 (-1 = auto, 0+ = specific index).
+  int m_SBSCbufferIndex = -1;
+
   // Dynamic resolution override for SBS reprojection (0 = auto-detect from viewport).
   int m_SBSDynResW = 0;
   int m_SBSDynResH = 0;

@@ -4263,12 +4263,13 @@ static int classifyStereoVarName(const rdcstr &name)
 // Searches all pixel-shader constant blocks for stereo VP matrix arrays using
 // shader reflection. No engine-specific byte offsets — every offset is read from
 // ShaderConstant::byteOffset and ShaderConstantType::arrayByteStride.
-static StereoMatrixConfig detectStereoMatrices(ICaptureContext &ctx)
+// Returns all valid candidates so the caller can pick the right one or iterate.
+static rdcarray<StereoMatrixConfig> detectAllStereoMatrices(ICaptureContext &ctx)
 {
-  StereoMatrixConfig cfg;
+  rdcarray<StereoMatrixConfig> results;
   const ShaderReflection *refl = ctx.CurPipelineState().GetShaderReflection(ShaderStage::Pixel);
   if(!refl)
-    return cfg;
+    return results;
 
   for(int bi = 0; bi < (int)refl->constantBlocks.size(); bi++)
   {
@@ -4327,11 +4328,11 @@ static StereoMatrixConfig detectStereoMatrices(ICaptureContext &ctx)
                 .arg(block.fixedBindNumber)
                 .arg(QString::fromUtf8(block.name.c_str(), (int)block.name.size()))
                 .arg(candidate.hasCameraPosAdjust ? lit(" + CameraPosAdjust") : QString());
-        return candidate;
+        results.push_back(candidate);
       }
     }
   }
-  return cfg;
+  return results;
 }
 
 void TextureViewer::on_sbsToggle_toggled(bool checked)
@@ -4376,10 +4377,12 @@ void TextureViewer::on_jumpOtherEye_clicked()
   float dynResScaleX = 1.0f, dynResScaleY = 1.0f;
   {
     Viewport vp = m_Ctx.CurPipelineState().GetViewport(0);
-    float autoW = (vp.width > 0.0f && vp.width < (float)halfWidth) ? vp.width : (float)halfWidth;
+    // The viewport covers the full SBS texture (both eyes), so autoW is the full SBS rendered
+    // width. dynResScaleX = autoW / texW gives the per-eye fraction relative to halfWidth
+    // (equivalent to (autoW/2) / halfWidth), which is what the UV math expects.
+    float autoW = (vp.width > 0.0f && vp.width < (float)texW) ? vp.width : (float)texW;
     float autoH = (vp.height > 0.0f && vp.height < (float)texH) ? vp.height : (float)texH;
-    dynResScaleX =
-        (m_SBSDynResW > 0) ? (float)m_SBSDynResW / (float)halfWidth : autoW / (float)halfWidth;
+    dynResScaleX = (m_SBSDynResW > 0) ? (float)m_SBSDynResW / (float)texW : autoW / (float)texW;
     dynResScaleY = (m_SBSDynResH > 0) ? (float)m_SBSDynResH / (float)texH : autoH / (float)texH;
     dynResScaleX = qBound(0.1f, dynResScaleX, 1.0f);
     dynResScaleY = qBound(0.1f, dynResScaleY, 1.0f);
@@ -4392,9 +4395,10 @@ void TextureViewer::on_jumpOtherEye_clicked()
 
   // Phase 2: try world-space reprojection using VP matrices discovered from reflection.
   // Skipped when the user has disabled it in the settings dialog.
-  StereoMatrixConfig matCfg;
+  rdcarray<StereoMatrixConfig> matCandidates;
   if(m_SBSPhase2Enabled)
-    matCfg = detectStereoMatrices(m_Ctx);
+    matCandidates = detectAllStereoMatrices(m_Ctx);
+  int sbsCbufferIndex = m_SBSCbufferIndex;
 
   Descriptor depthDesc = Following::GetDepthTarget(m_Ctx);
   ResourceId depthId = depthDesc.resource;
@@ -4411,45 +4415,65 @@ void TextureViewer::on_jumpOtherEye_clicked()
   PixelValue srcVal = {}, dstVal = {};
   bool done = false;
 
-  m_Ctx.Replay().AsyncInvoke(lit("JumpOtherEye"), [&result, &done, &srcVal, &dstVal, monoUVx, monoUVy,
-                                                   eyeIndex, texW, texH, logicalY, otherX_fallback,
-                                                   matCfg, depthId, depthX, depthY, dynResScaleX,
+  m_Ctx.Replay().AsyncInvoke(lit("JumpOtherEye"), [&result, &done, &srcVal, &dstVal, monoUVx,
+                                                   monoUVy, eyeIndex, texW, texH, logicalY,
+                                                   otherX_fallback, matCandidates, sbsCbufferIndex,
+                                                   depthId, depthX, depthY, dynResScaleX,
                                                    dynResScaleY, texId, texSub, texTypeCast,
                                                    srcPickX, srcPickY](IReplayController *r) {
-    // Phase 2: use discovered VP matrices if available and depth is usable.
-    if(matCfg.valid && depthId != ResourceId())
+    // Phase 2: try VP matrix reprojection. When auto (sbsCbufferIndex < 0), iterate all
+    // detected candidates and use the first whose result lands within the rendered region.
+    // A user-selected candidate (sbsCbufferIndex >= 0) is tried exclusively.
+    if(!matCandidates.empty() && depthId != ResourceId())
     {
-      bytebuf cbufData =
-          r->GetBufferData(matCfg.cbufId, matCfg.cbufByteOffset, matCfg.minBytesNeeded);
       PixelValue depthVal = r->PickPixel(depthId, depthX, depthY, {}, CompType::Depth);
       float depth = depthVal.floatValue[0];
 
-      if(cbufData.size() >= matCfg.minBytesNeeded && depth > 0.0f && depth < 1.0f)
+      if(depth > 0.0f && depth < 1.0f)
       {
-        VRFrameBufferMatrices mats = {};
-        memcpy(mats.viewProj[0], cbufData.data() + matCfg.viewProjOffset[0], 64);
-        memcpy(mats.viewProj[1], cbufData.data() + matCfg.viewProjOffset[1], 64);
-        memcpy(mats.viewProjInverse[0], cbufData.data() + matCfg.viewProjInvOffset[0], 64);
-        memcpy(mats.viewProjInverse[1], cbufData.data() + matCfg.viewProjInvOffset[1], 64);
-        if(matCfg.hasCameraPosAdjust)
-        {
-          mats.hasCameraPosAdjust = true;
-          memcpy(mats.cameraPosAdjust[0], cbufData.data() + matCfg.cameraPosAdjustOffset[0], 16);
-          memcpy(mats.cameraPosAdjust[1], cbufData.data() + matCfg.cameraPosAdjustOffset[1], 16);
-        }
+        // Full rendered region: [0, rendW) x [0, rendH). Any result outside is from wrong matrices.
+        int rendW = qMax(1, (int)((float)texW * dynResScaleX));
+        int rendH = qMax(1, (int)((float)texH * dynResScaleY));
 
-        float otherMonoUVx = 0.0f, otherMonoUVy = 0.0f;
-        if(SBSMapper::reproject(monoUVx, monoUVy, depth, eyeIndex, mats, otherMonoUVx, otherMonoUVy))
+        int candidateStart = (sbsCbufferIndex >= 0 && sbsCbufferIndex < (int)matCandidates.size())
+                                 ? sbsCbufferIndex
+                                 : 0;
+        int candidateEnd = (sbsCbufferIndex >= 0) ? candidateStart + 1 : (int)matCandidates.size();
+
+        for(int ci = candidateStart; ci < candidateEnd; ci++)
         {
-          // otherMonoUV is in [0,1] rendered-region space; scale back to full-texture pixels.
-          uint32_t otherEye = 1u - eyeIndex;
-          int otherX = (int)((otherMonoUVx * dynResScaleX + (float)otherEye) * 0.5f * (float)texW);
-          int otherY = (int)(otherMonoUVy * dynResScaleY * (float)texH);
-          if(otherX >= 0 && otherX < (int)texW && otherY >= 0 && otherY < (int)texH)
+          const StereoMatrixConfig &matCfg = matCandidates[ci];
+          bytebuf cbufData =
+              r->GetBufferData(matCfg.cbufId, matCfg.cbufByteOffset, matCfg.minBytesNeeded);
+          if((int)cbufData.size() < (int)matCfg.minBytesNeeded)
+            continue;
+
+          VRFrameBufferMatrices mats = {};
+          memcpy(mats.viewProj[0], cbufData.data() + matCfg.viewProjOffset[0], 64);
+          memcpy(mats.viewProj[1], cbufData.data() + matCfg.viewProjOffset[1], 64);
+          memcpy(mats.viewProjInverse[0], cbufData.data() + matCfg.viewProjInvOffset[0], 64);
+          memcpy(mats.viewProjInverse[1], cbufData.data() + matCfg.viewProjInvOffset[1], 64);
+          if(matCfg.hasCameraPosAdjust)
           {
-            result = QPoint(otherX, otherY);
-            done = true;
-            return;
+            mats.hasCameraPosAdjust = true;
+            memcpy(mats.cameraPosAdjust[0], cbufData.data() + matCfg.cameraPosAdjustOffset[0], 16);
+            memcpy(mats.cameraPosAdjust[1], cbufData.data() + matCfg.cameraPosAdjustOffset[1], 16);
+          }
+
+          float otherMonoUVx = 0.0f, otherMonoUVy = 0.0f;
+          if(SBSMapper::reproject(monoUVx, monoUVy, depth, eyeIndex, mats, otherMonoUVx, otherMonoUVy))
+          {
+            // otherMonoUV is in [0,1] rendered-region space; scale back to full-texture pixels.
+            uint32_t otherEye = 1u - eyeIndex;
+            int otherX = (int)((otherMonoUVx * dynResScaleX + (float)otherEye) * 0.5f * (float)texW);
+            int otherY = (int)(otherMonoUVy * dynResScaleY * (float)texH);
+            if(otherX >= 0 && otherX < rendW && otherY >= 0 && otherY < rendH)
+            {
+              result = QPoint(otherX, otherY);
+              done = true;
+              return;
+            }
+            // Out of bounds — try next candidate
           }
         }
       }
@@ -4530,37 +4554,45 @@ void TextureViewer::on_sbsSettings_clicked()
          "simple horizontal mirror (Phase 1) if the wrong cbuffer is being detected."));
   form->addRow(phase2Check);
 
-  // --- Detected cbuffer info ---
-  StereoMatrixConfig det = detectStereoMatrices(m_Ctx);
-  QString detectedInfo = det.valid ? det.description : tr("None found");
-  QLabel *detectedLabel = new QLabel(detectedInfo, &dlg);
-  detectedLabel->setWordWrap(true);
-  form->addRow(tr("Detected cbuffer:"), detectedLabel);
+  // --- cbuffer selection ---
+  rdcarray<StereoMatrixConfig> candidates = detectAllStereoMatrices(m_Ctx);
+  QComboBox *cbufCombo = new QComboBox(&dlg);
+  cbufCombo->addItem(tr("Auto (try all in order)"), -1);
+  for(int i = 0; i < (int)candidates.size(); i++)
+    cbufCombo->addItem(candidates[i].description, i);
+  if(m_SBSCbufferIndex < 0 || m_SBSCbufferIndex >= (int)candidates.size())
+    cbufCombo->setCurrentIndex(0);
+  else
+    cbufCombo->setCurrentIndex(m_SBSCbufferIndex + 1);    // +1 for the Auto entry
+  cbufCombo->setToolTip(
+      tr("Which constant buffer's ViewProj/ViewProjInverse matrices to use for Phase 2\n"
+         "reprojection. Auto tries each detected candidate and uses the first whose result\n"
+         "lands within the rendered region. Pick a specific entry if auto chooses wrongly."));
+  form->addRow(tr("cbuffer:"), cbufCombo);
 
   // --- Dynamic resolution override ---
   QSpinBox *wBox = new QSpinBox(&dlg);
   wBox->setRange(0, 16384);
   wBox->setValue(m_SBSDynResW);
   wBox->setSpecialValueText(tr("Auto"));
-  wBox->setToolTip(tr("Rendered width per eye (0 = auto-detect from viewport)"));
+  wBox->setToolTip(tr("Full SBS rendered width (covers both eyes; 0 = auto-detect from viewport)"));
 
   QSpinBox *hBox = new QSpinBox(&dlg);
   hBox->setRange(0, 16384);
   hBox->setValue(m_SBSDynResH);
   hBox->setSpecialValueText(tr("Auto"));
-  hBox->setToolTip(tr("Rendered height per eye (0 = auto-detect from viewport)"));
+  hBox->setToolTip(tr("Rendered height (0 = auto-detect from viewport)"));
 
   QString autoInfo = tr("(no capture)");
   TextureDescription *tex = GetCurrentTexture();
   if(tex && tex->width > 0)
   {
-    int halfW = (int)(tex->width / 2);
     Viewport vp = m_Ctx.CurPipelineState().GetViewport(0);
-    int autoW = (vp.width > 0.0f && vp.width < (float)halfW) ? (int)vp.width : halfW;
+    int autoW = (vp.width > 0.0f && vp.width < (float)tex->width) ? (int)vp.width : (int)tex->width;
     int autoH =
         (vp.height > 0.0f && vp.height < (float)tex->height) ? (int)vp.height : (int)tex->height;
     autoInfo =
-        QFormatStr("%1 x %2 (half-tex: %3 x %4)").arg(autoW).arg(autoH).arg(halfW).arg(tex->height);
+        QFormatStr("%1 x %2 (tex: %3 x %4)").arg(autoW).arg(autoH).arg(tex->width).arg(tex->height);
   }
 
   form->addRow(tr("Rendered width:"), wBox);
@@ -4579,6 +4611,7 @@ void TextureViewer::on_sbsSettings_clicked()
   if(dlg.exec() == QDialog::Accepted)
   {
     m_SBSPhase2Enabled = phase2Check->isChecked();
+    m_SBSCbufferIndex = cbufCombo->currentData().toInt();
     m_SBSDynResW = wBox->value();
     m_SBSDynResH = hBox->value();
   }
