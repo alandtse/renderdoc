@@ -1273,6 +1273,22 @@ See FAQ on &quot;Gamma display of linear data&quot;</string>
         </property>
        </widget>
       </item>
+      <item row="3" column="0" colspan="2">
+       <widget class="QLabel" name="sbsEyeCompare">
+        <property name="text">
+         <string/>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
+        </property>
+        <property name="wordWrap">
+         <bool>false</bool>
+        </property>
+        <property name="toolTip">
+         <string>Pixel values at the picked pixel (src) and other-eye pixel (dst), with per-channel absolute diff (D)</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </item>
    </layout>

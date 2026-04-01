@@ -397,6 +397,12 @@ private:
   // Parented to the render container (not the GPU-rendered widget) to avoid native-window conflicts.
   QLabel *m_PickedLabel = NULL;
 
+  // Pixel value comparison label populated after "Other Eye" jump.
+  QLabel *m_SBSEyeCompare = NULL;
+
+  // When false, Phase 2 matrix reprojection is skipped and Phase 1 mirror is always used.
+  bool m_SBSPhase2Enabled = true;
+
   // Dynamic resolution override for SBS reprojection (0 = auto-detect from viewport).
   int m_SBSDynResW = 0;
   int m_SBSDynResH = 0;

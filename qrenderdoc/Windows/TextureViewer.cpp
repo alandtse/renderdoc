@@ -25,6 +25,7 @@
 #include "TextureViewer.h"
 #include <float.h>
 #include <math.h>
+#include <QCheckBox>
 #include <QClipboard>
 #include <QColorDialog>
 #include <QDialog>
@@ -707,6 +708,11 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
           "font-weight: bold; border-radius: 3px; }"));
   m_PickedLabel->hide();
   m_PickedLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+
+  // Eye comparison label — populated by on_jumpOtherEye_clicked, lives in pixelcontextgrid.
+  // Actual grid insertion is done in the .ui file (row 3, colspan 2).
+  m_SBSEyeCompare = ui->sbsEyeCompare;
+  m_SBSEyeCompare->hide();
 }
 
 TextureViewer::~TextureViewer()
@@ -1190,7 +1196,7 @@ void TextureViewer::UI_UpdateStatusText()
         eyeTag = eye == 0 ? lit(" [L]") : lit(" [R]");
       }
       m_PickedLabel->setText(
-          QFormatStr("⊕ %1, %2%3").arg(m_PickedPoint.x()).arg(m_PickedPoint.y()).arg(eyeTag));
+          QFormatStr("[px] %1, %2%3").arg(m_PickedPoint.x()).arg(m_PickedPoint.y()).arg(eyeTag));
       m_PickedLabel->adjustSize();
       // Position in the top-left corner of the render area.
       QPoint renderTopLeft = ui->render->mapTo(m_PickedLabel->parentWidget(), QPoint(4, 4));
@@ -4234,6 +4240,8 @@ struct StereoMatrixConfig
   bool hasCameraPosAdjust = false;
   uint32_t cameraPosAdjustOffset[2] = {};
   uint32_t minBytesNeeded = 0;
+  // Human-readable description for the settings dialog.
+  QString description;
 };
 
 // Returns 1=ViewProj, 2=ViewProjInverse, 3=CameraPosAdjust, 0=unknown.
@@ -4314,6 +4322,11 @@ static StereoMatrixConfig detectStereoMatrices(ICaptureContext &ctx)
           maxEnd = qMax(maxEnd, candidate.cameraPosAdjustOffset[1] + 16u);
         candidate.minBytesNeeded = maxEnd;
         candidate.valid = true;
+        candidate.description =
+            QFormatStr("b%1 (%2)%3")
+                .arg(block.fixedBindNumber)
+                .arg(QString::fromUtf8(block.name.c_str(), (int)block.name.size()))
+                .arg(candidate.hasCameraPosAdjust ? lit(" + CameraPosAdjust") : QString());
         return candidate;
       }
     }
@@ -4325,6 +4338,8 @@ void TextureViewer::on_sbsToggle_toggled(bool checked)
 {
   m_SBSMapper.enabled = checked;
   ui->jumpOtherEye->setEnabled(checked && m_PickedPoint.x() >= 0);
+  if(!checked && m_SBSEyeCompare)
+    m_SBSEyeCompare->hide();
   UI_UpdateStatusText();
 }
 
@@ -4376,22 +4391,31 @@ void TextureViewer::on_jumpOtherEye_clicked()
   float monoUVy = ((float)logicalY / (float)texH) / dynResScaleY;
 
   // Phase 2: try world-space reprojection using VP matrices discovered from reflection.
-  // detectStereoMatrices searches all PS constant blocks for float4x4[>=2] arrays
-  // whose names indicate ViewProj / ViewProjInverse — no engine-specific offsets.
-  StereoMatrixConfig matCfg = detectStereoMatrices(m_Ctx);
+  // Skipped when the user has disabled it in the settings dialog.
+  StereoMatrixConfig matCfg;
+  if(m_SBSPhase2Enabled)
+    matCfg = detectStereoMatrices(m_Ctx);
 
   Descriptor depthDesc = Following::GetDepthTarget(m_Ctx);
   ResourceId depthId = depthDesc.resource;
   uint32_t depthX = (uint32_t)srcX;
   uint32_t depthY = (uint32_t)logicalY;
 
+  ResourceId texId = m_TexDisplay.resourceId;
+  Subresource texSub = m_TexDisplay.subresource;
+  CompType texTypeCast = m_TexDisplay.typeCast;
+  uint32_t srcPickX = (uint32_t)srcX;
+  uint32_t srcPickY = (uint32_t)logicalY;
+
   QPoint result(-1, -1);
+  PixelValue srcVal = {}, dstVal = {};
   bool done = false;
 
-  m_Ctx.Replay().AsyncInvoke(lit("JumpOtherEye"), [&result, &done, monoUVx, monoUVy, eyeIndex, texW,
-                                                   texH, logicalY, otherX_fallback, matCfg, depthId,
-                                                   depthX, depthY, dynResScaleX,
-                                                   dynResScaleY](IReplayController *r) {
+  m_Ctx.Replay().AsyncInvoke(lit("JumpOtherEye"), [&result, &done, &srcVal, &dstVal, monoUVx, monoUVy,
+                                                   eyeIndex, texW, texH, logicalY, otherX_fallback,
+                                                   matCfg, depthId, depthX, depthY, dynResScaleX,
+                                                   dynResScaleY, texId, texSub, texTypeCast,
+                                                   srcPickX, srcPickY](IReplayController *r) {
     // Phase 2: use discovered VP matrices if available and depth is usable.
     if(matCfg.valid && depthId != ResourceId())
     {
@@ -4434,7 +4458,7 @@ void TextureViewer::on_jumpOtherEye_clicked()
     // Phase 1 fallback: simple horizontal mirror.
     result = QPoint(otherX_fallback, logicalY);
     done = true;
-  });
+  });    // end AsyncInvoke lambda — pick both pixel values in a separate invoke so we have the result
 
   // Wait up to one second for the replay thread.
   for(int i = 0; !done && i < 200; i++)
@@ -4442,6 +4466,48 @@ void TextureViewer::on_jumpOtherEye_clicked()
 
   if(!done || result.x() < 0)
     return;
+
+  // Now pick both pixel values for the comparison label.
+  uint32_t dstPickX = (uint32_t)result.x();
+  uint32_t dstPickY = (uint32_t)result.y();
+  if(texId != ResourceId())
+  {
+    bool valsDone = false;
+    m_Ctx.Replay().AsyncInvoke(
+        lit("JumpOtherEyeVals"), [&srcVal, &dstVal, &valsDone, texId, texSub, texTypeCast, srcPickX,
+                                  srcPickY, dstPickX, dstPickY](IReplayController *r) {
+          srcVal = r->PickPixel(texId, srcPickX, srcPickY, texSub, texTypeCast);
+          dstVal = r->PickPixel(texId, dstPickX, dstPickY, texSub, texTypeCast);
+          valsDone = true;
+        });
+    for(int i = 0; !valsDone && i < 200; i++)
+      QThread::msleep(5);
+  }
+
+  // Update the comparison label with src / dst / diff.
+  if(m_SBSEyeCompare)
+  {
+    auto fmt = [](float v) { return QString::number((double)v, 'f', 3); };
+    QString srcEye = eyeIndex == 0 ? lit("L") : lit("R");
+    QString dstEye = eyeIndex == 0 ? lit("R") : lit("L");
+    QString text = QFormatStr("%1: %2, %3, %4, %5\n%6: %7, %8, %9, %10\nD: %11, %12, %13, %14")
+                       .arg(srcEye)
+                       .arg(fmt(srcVal.floatValue[0]))
+                       .arg(fmt(srcVal.floatValue[1]))
+                       .arg(fmt(srcVal.floatValue[2]))
+                       .arg(fmt(srcVal.floatValue[3]))
+                       .arg(dstEye)
+                       .arg(fmt(dstVal.floatValue[0]))
+                       .arg(fmt(dstVal.floatValue[1]))
+                       .arg(fmt(dstVal.floatValue[2]))
+                       .arg(fmt(dstVal.floatValue[3]))
+                       .arg(fmt(qAbs(dstVal.floatValue[0] - srcVal.floatValue[0])))
+                       .arg(fmt(qAbs(dstVal.floatValue[1] - srcVal.floatValue[1])))
+                       .arg(fmt(qAbs(dstVal.floatValue[2] - srcVal.floatValue[2])))
+                       .arg(fmt(qAbs(dstVal.floatValue[3] - srcVal.floatValue[3])));
+    m_SBSEyeCompare->setText(text);
+    m_SBSEyeCompare->show();
+  }
 
   // result is in unflipped base coords; GotoLocation expects mip-level coords.
   GotoLocation(MipCoordFromBase(result.x(), tex->width), MipCoordFromBase(result.y(), tex->height));
@@ -4455,6 +4521,23 @@ void TextureViewer::on_sbsSettings_clicked()
 
   QFormLayout *form = new QFormLayout;
 
+  // --- Phase 2 toggle ---
+  QCheckBox *phase2Check = new QCheckBox(tr("Use matrix reprojection (Phase 2)"), &dlg);
+  phase2Check->setChecked(m_SBSPhase2Enabled);
+  phase2Check->setToolTip(
+      tr("When enabled, uses ViewProj/ViewProjInverse matrices found in the pixel shader's\n"
+         "constant buffers for geometrically accurate reprojection. Disable to force\n"
+         "simple horizontal mirror (Phase 1) if the wrong cbuffer is being detected."));
+  form->addRow(phase2Check);
+
+  // --- Detected cbuffer info ---
+  StereoMatrixConfig det = detectStereoMatrices(m_Ctx);
+  QString detectedInfo = det.valid ? det.description : tr("None found");
+  QLabel *detectedLabel = new QLabel(detectedInfo, &dlg);
+  detectedLabel->setWordWrap(true);
+  form->addRow(tr("Detected cbuffer:"), detectedLabel);
+
+  // --- Dynamic resolution override ---
   QSpinBox *wBox = new QSpinBox(&dlg);
   wBox->setRange(0, 16384);
   wBox->setValue(m_SBSDynResW);
@@ -4467,7 +4550,6 @@ void TextureViewer::on_sbsSettings_clicked()
   hBox->setSpecialValueText(tr("Auto"));
   hBox->setToolTip(tr("Rendered height per eye (0 = auto-detect from viewport)"));
 
-  // Show what auto-detection currently yields so the user has a reference.
   QString autoInfo = tr("(no capture)");
   TextureDescription *tex = GetCurrentTexture();
   if(tex && tex->width > 0)
@@ -4477,7 +4559,8 @@ void TextureViewer::on_sbsSettings_clicked()
     int autoW = (vp.width > 0.0f && vp.width < (float)halfW) ? (int)vp.width : halfW;
     int autoH =
         (vp.height > 0.0f && vp.height < (float)tex->height) ? (int)vp.height : (int)tex->height;
-    autoInfo = QFormatStr("%1 × %2").arg(autoW).arg(autoH);
+    autoInfo =
+        QFormatStr("%1 x %2 (half-tex: %3 x %4)").arg(autoW).arg(autoH).arg(halfW).arg(tex->height);
   }
 
   form->addRow(tr("Rendered width:"), wBox);
@@ -4495,6 +4578,7 @@ void TextureViewer::on_sbsSettings_clicked()
 
   if(dlg.exec() == QDialog::Accepted)
   {
+    m_SBSPhase2Enabled = phase2Check->isChecked();
     m_SBSDynResW = wBox->value();
     m_SBSDynResH = hBox->value();
   }
