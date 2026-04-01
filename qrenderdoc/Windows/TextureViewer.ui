@@ -545,6 +545,22 @@
      </widget>
     </item>
     <item>
+     <widget class="QToolButton" name="sbsSettings">
+      <property name="toolTip">
+       <string>SBS stereo settings: override dynamic resolution rendered size for accurate eye reprojection.</string>
+      </property>
+      <property name="text">
+       <string>⚙</string>
+      </property>
+      <property name="toolButtonStyle">
+       <enum>Qt::ToolButtonTextOnly</enum>
+      </property>
+      <property name="autoRaise">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
+    <item>
      <widget class="QToolButton" name="resourceDetails">
       <property name="toolTip">
        <string>Open the currently visible resource's details in the resource inspector</string>

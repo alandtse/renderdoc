@@ -37,6 +37,7 @@ namespace Ui
 class TextureViewer;
 }
 
+class PickedPixelOverlay;
 class RDTreeWidgetItem;
 class ResourcePreview;
 class ThumbnailStrip;
@@ -197,6 +198,7 @@ private slots:
   void on_pixelHistory_clicked();
   void on_sbsToggle_toggled(bool checked);
   void on_jumpOtherEye_clicked();
+  void on_sbsSettings_clicked();
 
   void on_customCreate_clicked();
   void on_customEdit_clicked();
@@ -390,4 +392,11 @@ private:
   TextureDisplay m_TexDisplay;
 
   SBSMapper m_SBSMapper;
+
+  // Blinking overlay dot shown on the main render widget at the picked pixel.
+  PickedPixelOverlay *m_PickedOverlay = NULL;
+
+  // Dynamic resolution override for SBS reprojection (0 = auto-detect from viewport).
+  int m_SBSDynResW = 0;
+  int m_SBSDynResH = 0;
 };
