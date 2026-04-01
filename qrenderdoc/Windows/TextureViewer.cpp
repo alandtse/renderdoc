@@ -709,6 +709,12 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
   m_PickedLabel->hide();
   m_PickedLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
 
+  m_PickedCrosshair = new QWidget(ui->render->parentWidget());
+  m_PickedCrosshair->setStyleSheet(
+      lit("background: transparent; border: 1px solid rgba(255, 204, 68, 220);"));
+  m_PickedCrosshair->setAttribute(Qt::WA_TransparentForMouseEvents);
+  m_PickedCrosshair->hide();
+
   // Eye comparison label — populated by on_jumpOtherEye_clicked, lives in pixelcontextgrid.
   // Actual grid insertion is done in the .ui file (row 3, colspan 2).
   m_SBSEyeCompare = ui->sbsEyeCompare;
@@ -1062,7 +1068,7 @@ void TextureViewer::UI_UpdateStatusText()
 
     if(m_SBSMapper.enabled)
     {
-      uint32_t eye = m_SBSMapper.eyeIndexForPixel(m_PickedPoint, tex.width);
+      uint32_t eye = ((float)m_PickedPoint.x() < SBSDynResHalfWidth()) ? 0u : 1u;
       pickedText =
           tr("Right click [%1] - %2, %3: ").arg(eye == 0 ? tr("L") : tr("R")).arg(x, 4).arg(y, 4);
     }
@@ -1192,7 +1198,7 @@ void TextureViewer::UI_UpdateStatusText()
       TextureDescription *t = GetCurrentTexture();
       if(m_SBSMapper.enabled && t && t->width > 0)
       {
-        uint32_t eye = m_SBSMapper.eyeIndexForPixel(m_PickedPoint, t->width);
+        uint32_t eye = ((float)m_PickedPoint.x() < SBSDynResHalfWidth()) ? 0u : 1u;
         eyeTag = eye == 0 ? lit(" [L]") : lit(" [R]");
       }
       m_PickedLabel->setText(
@@ -1209,6 +1215,8 @@ void TextureViewer::UI_UpdateStatusText()
       m_PickedLabel->hide();
     }
   }
+
+  UI_UpdatePickedCrosshair();
 }
 
 void TextureViewer::UI_UpdateTextureDetails()
@@ -2904,6 +2912,7 @@ void TextureViewer::setScrollPosition(const QPoint &pos)
   }
 
   INVOKE_MEMFN(RT_UpdateAndDisplay);
+  UI_UpdatePickedCrosshair();
 }
 
 void TextureViewer::UI_CalcScrollbars()
@@ -4240,6 +4249,10 @@ struct StereoMatrixConfig
   bool hasCameraPosAdjust = false;
   uint32_t cameraPosAdjustOffset[2] = {};
   uint32_t minBytesNeeded = 0;
+  // Names of the shader variables that triggered each slot's detection.
+  QString viewProjVarName;
+  QString viewProjInvVarName;
+  QString cameraPosVarName;
   // Human-readable description for the settings dialog.
   QString description;
 };
@@ -4291,12 +4304,14 @@ static rdcarray<StereoMatrixConfig> detectAllStereoMatrices(ICaptureContext &ctx
         {
           candidate.viewProjOffset[0] = var.byteOffset;
           candidate.viewProjOffset[1] = var.byteOffset + stride;
+          candidate.viewProjVarName = QString::fromUtf8(var.name.c_str(), (int)var.name.size());
           foundVP = true;
         }
         else if(cls == 2)
         {
           candidate.viewProjInvOffset[0] = var.byteOffset;
           candidate.viewProjInvOffset[1] = var.byteOffset + stride;
+          candidate.viewProjInvVarName = QString::fromUtf8(var.name.c_str(), (int)var.name.size());
           foundVPInv = true;
         }
       }
@@ -4307,6 +4322,7 @@ static rdcarray<StereoMatrixConfig> detectAllStereoMatrices(ICaptureContext &ctx
         uint32_t stride = (t.arrayByteStride > 0) ? t.arrayByteStride : 16u;
         candidate.cameraPosAdjustOffset[0] = var.byteOffset;
         candidate.cameraPosAdjustOffset[1] = var.byteOffset + stride;
+        candidate.cameraPosVarName = QString::fromUtf8(var.name.c_str(), (int)var.name.size());
         candidate.hasCameraPosAdjust = true;
       }
     }
@@ -4335,6 +4351,49 @@ static rdcarray<StereoMatrixConfig> detectAllStereoMatrices(ICaptureContext &ctx
   return results;
 }
 
+void TextureViewer::UI_UpdatePickedCrosshair()
+{
+  if(!m_PickedCrosshair)
+    return;
+
+  if(m_PickedPoint.x() < 0 || m_Output == NULL)
+  {
+    m_PickedCrosshair->hide();
+    return;
+  }
+
+  float dpr = ui->render->devicePixelRatioF();
+  float scale = m_TexDisplay.scale;
+
+  // One texture pixel in logical screen coordinates; keep a minimum of 3 so it's always visible.
+  int pixSize = qMax(3, (int)ceilf(scale / dpr));
+
+  float sx = ((float)m_PickedPoint.x() * scale + m_TexDisplay.xOffset) / dpr;
+  float sy = ((float)m_PickedPoint.y() * scale + m_TexDisplay.yOffset) / dpr;
+
+  QPoint renderOrigin = ui->render->mapTo(m_PickedCrosshair->parentWidget(), QPoint(0, 0));
+  int x = renderOrigin.x() + (int)sx;
+  int y = renderOrigin.y() + (int)sy;
+
+  m_PickedCrosshair->setGeometry(x, y, pixSize, pixSize);
+  m_PickedCrosshair->show();
+  m_PickedCrosshair->raise();
+}
+
+// Returns the x-coordinate of the SBS split point in texture pixels, accounting for dynamic
+// resolution. When dynres is active the split is at dynResW/2, not texW/2.
+float TextureViewer::SBSDynResHalfWidth()
+{
+  TextureDescription *tex = GetCurrentTexture();
+  if(!tex || tex->width == 0)
+    return 0.0f;
+  float texW = (float)tex->width;
+  Viewport vp = m_Ctx.CurPipelineState().GetViewport(0);
+  float autoW = (vp.width > 0.0f && vp.width < texW) ? vp.width : texW;
+  float scale = (m_SBSDynResW > 0) ? (float)m_SBSDynResW / texW : autoW / texW;
+  return texW * qBound(0.1f, scale, 1.0f) * 0.5f;
+}
+
 void TextureViewer::on_sbsToggle_toggled(bool checked)
 {
   m_SBSMapper.enabled = checked;
@@ -4353,33 +4412,15 @@ void TextureViewer::on_jumpOtherEye_clicked()
   if(!tex || tex->width == 0)
     return;
 
-  int halfWidth = (int)(tex->width / 2);
-  int srcX = m_PickedPoint.x();
-  int otherX_fallback = (srcX < halfWidth) ? srcX + halfWidth : srcX - halfWidth;
-
-  if(otherX_fallback < 0 || otherX_fallback >= (int)tex->width)
-    return;
-
-  // Un-flip Y to get the logical base coordinate that GotoLocation expects.
-  int logicalY = m_PickedPoint.y();
-  if(ShouldFlipForGL())
-    logicalY = (int)(tex->height - 1) - logicalY;
-  if(m_TexDisplay.flipY)
-    logicalY = (int)(tex->height - 1) - logicalY;
-
-  uint32_t eyeIndex = (srcX < halfWidth) ? 0u : 1u;
   uint32_t texW = tex->width;
   uint32_t texH = tex->height;
 
-  // Dynamic resolution: if only part of each eye half is actually rendered, the VP matrices
-  // expect UV relative to the rendered sub-region, not the full half-texture extent.
-  // Auto-detect from the current viewport; m_SBSDynRes{W,H} override when non-zero.
+  // Compute dynres scale before anything else — eye detection and all coordinate math depend on it.
+  // The viewport covers the full SBS texture (both eyes). dynResScaleX = viewportW / texW so that
+  // dynResHalfW = texW * dynResScaleX * 0.5 is the per-eye rendered pixel width.
   float dynResScaleX = 1.0f, dynResScaleY = 1.0f;
   {
     Viewport vp = m_Ctx.CurPipelineState().GetViewport(0);
-    // The viewport covers the full SBS texture (both eyes), so autoW is the full SBS rendered
-    // width. dynResScaleX = autoW / texW gives the per-eye fraction relative to halfWidth
-    // (equivalent to (autoW/2) / halfWidth), which is what the UV math expects.
     float autoW = (vp.width > 0.0f && vp.width < (float)texW) ? vp.width : (float)texW;
     float autoH = (vp.height > 0.0f && vp.height < (float)texH) ? vp.height : (float)texH;
     dynResScaleX = (m_SBSDynResW > 0) ? (float)m_SBSDynResW / (float)texW : autoW / (float)texW;
@@ -4388,16 +4429,60 @@ void TextureViewer::on_jumpOtherEye_clicked()
     dynResScaleY = qBound(0.1f, dynResScaleY, 1.0f);
   }
 
-  // UV in the rendered sub-region (divide by dynRes scale to account for the rendered fraction).
-  float srcX_in_half = (float)(srcX - (int)eyeIndex * halfWidth);
-  float monoUVx = (srcX_in_half / (float)halfWidth) / dynResScaleX;
-  float monoUVy = ((float)logicalY / (float)texH) / dynResScaleY;
+  // Left eye: x in [0, dynResHalfW), right eye: x in [dynResHalfW, renderedW).
+  // Pixels at x >= renderedW are in the unrendered border — skip.
+  float dynResHalfW = (float)texW * dynResScaleX * 0.5f;
+  int renderedW = qMax(1, (int)((float)texW * dynResScaleX));
+  int renderedH = qMax(1, (int)((float)texH * dynResScaleY));
+
+  int srcX = m_PickedPoint.x();
+  if(srcX < 0 || srcX >= renderedW)
+    return;
+
+  uint32_t eyeIndex = (srcX < (int)dynResHalfW) ? 0u : 1u;
+  // Phase 1 fallback: mirror within the rendered region (not across texW/2).
+  int otherX_fallback = (eyeIndex == 0u) ? srcX + (int)dynResHalfW : srcX - (int)dynResHalfW;
+
+  // Un-flip Y to get the logical base coordinate that GotoLocation expects.
+  int logicalY = m_PickedPoint.y();
+  if(ShouldFlipForGL())
+    logicalY = (int)(tex->height - 1) - logicalY;
+  if(m_TexDisplay.flipY)
+    logicalY = (int)(tex->height - 1) - logicalY;
+
+  // monoUV: per-eye UV in [0,1] of the rendered sub-region.
+  float monoUVx = ((float)srcX - (float)eyeIndex * dynResHalfW) / dynResHalfW;
+  float monoUVy = (float)logicalY / ((float)texH * dynResScaleY);
 
   // Phase 2: try world-space reprojection using VP matrices discovered from reflection.
   // Skipped when the user has disabled it in the settings dialog.
   rdcarray<StereoMatrixConfig> matCandidates;
   if(m_SBSPhase2Enabled)
+  {
     matCandidates = detectAllStereoMatrices(m_Ctx);
+    // Apply any per-slot byte offset overrides the user has set.
+    for(int ci = 0; ci < (int)matCandidates.size(); ci++)
+    {
+      StereoMatrixConfig &c = matCandidates[ci];
+      if(m_SBSVPEye0Offset >= 0)
+        c.viewProjOffset[0] = (uint32_t)m_SBSVPEye0Offset;
+      if(m_SBSVPEye1Offset >= 0)
+        c.viewProjOffset[1] = (uint32_t)m_SBSVPEye1Offset;
+      if(m_SBSVPInvEye0Offset >= 0)
+        c.viewProjInvOffset[0] = (uint32_t)m_SBSVPInvEye0Offset;
+      if(m_SBSVPInvEye1Offset >= 0)
+        c.viewProjInvOffset[1] = (uint32_t)m_SBSVPInvEye1Offset;
+      if(m_SBSCamPosEye0Offset >= 0)
+        c.cameraPosAdjustOffset[0] = (uint32_t)m_SBSCamPosEye0Offset;
+      if(m_SBSCamPosEye1Offset >= 0)
+        c.cameraPosAdjustOffset[1] = (uint32_t)m_SBSCamPosEye1Offset;
+      // Recompute minBytesNeeded after any override.
+      uint32_t maxEnd = qMax(c.viewProjOffset[1], c.viewProjInvOffset[1]) + 64u;
+      if(c.hasCameraPosAdjust)
+        maxEnd = qMax(maxEnd, c.cameraPosAdjustOffset[1] + 16u);
+      c.minBytesNeeded = maxEnd;
+    }
+  }
   int sbsCbufferIndex = m_SBSCbufferIndex;
 
   Descriptor depthDesc = Following::GetDepthTarget(m_Ctx);
@@ -4416,11 +4501,11 @@ void TextureViewer::on_jumpOtherEye_clicked()
   bool done = false;
 
   m_Ctx.Replay().AsyncInvoke(lit("JumpOtherEye"), [&result, &done, &srcVal, &dstVal, monoUVx,
-                                                   monoUVy, eyeIndex, texW, texH, logicalY,
-                                                   otherX_fallback, matCandidates, sbsCbufferIndex,
-                                                   depthId, depthX, depthY, dynResScaleX,
-                                                   dynResScaleY, texId, texSub, texTypeCast,
-                                                   srcPickX, srcPickY](IReplayController *r) {
+                                                   monoUVy, eyeIndex, texH, logicalY, otherX_fallback,
+                                                   matCandidates, sbsCbufferIndex, depthId, depthX,
+                                                   depthY, dynResHalfW, dynResScaleY, renderedW,
+                                                   renderedH, texId, texSub, texTypeCast, srcPickX,
+                                                   srcPickY](IReplayController *r) {
     // Phase 2: try VP matrix reprojection. When auto (sbsCbufferIndex < 0), iterate all
     // detected candidates and use the first whose result lands within the rendered region.
     // A user-selected candidate (sbsCbufferIndex >= 0) is tried exclusively.
@@ -4431,10 +4516,6 @@ void TextureViewer::on_jumpOtherEye_clicked()
 
       if(depth > 0.0f && depth < 1.0f)
       {
-        // Full rendered region: [0, rendW) x [0, rendH). Any result outside is from wrong matrices.
-        int rendW = qMax(1, (int)((float)texW * dynResScaleX));
-        int rendH = qMax(1, (int)((float)texH * dynResScaleY));
-
         int candidateStart = (sbsCbufferIndex >= 0 && sbsCbufferIndex < (int)matCandidates.size())
                                  ? sbsCbufferIndex
                                  : 0;
@@ -4463,11 +4544,13 @@ void TextureViewer::on_jumpOtherEye_clicked()
           float otherMonoUVx = 0.0f, otherMonoUVy = 0.0f;
           if(SBSMapper::reproject(monoUVx, monoUVy, depth, eyeIndex, mats, otherMonoUVx, otherMonoUVy))
           {
-            // otherMonoUV is in [0,1] rendered-region space; scale back to full-texture pixels.
+            // Back-convert from per-eye rendered UV to full-texture pixel coords.
+            // otherEye * dynResHalfW is the x origin of the other eye's rendered region.
             uint32_t otherEye = 1u - eyeIndex;
-            int otherX = (int)((otherMonoUVx * dynResScaleX + (float)otherEye) * 0.5f * (float)texW);
-            int otherY = (int)(otherMonoUVy * dynResScaleY * (float)texH);
-            if(otherX >= 0 && otherX < rendW && otherY >= 0 && otherY < rendH)
+            int otherX = qRound((otherMonoUVx + (float)otherEye) * dynResHalfW);
+            int otherY = qRound(otherMonoUVy * (float)texH * dynResScaleY);
+            // Reject if outside the rendered region — wrong matrices produced a plausible UV.
+            if(otherX >= 0 && otherX < renderedW && otherY >= 0 && otherY < renderedH)
             {
               result = QPoint(otherX, otherY);
               done = true;
@@ -4539,6 +4622,49 @@ void TextureViewer::on_jumpOtherEye_clicked()
 
 void TextureViewer::on_sbsSettings_clicked()
 {
+  // Detect candidates and pre-read the first selected candidate's cbuffer for value preview.
+  rdcarray<StereoMatrixConfig> candidates = detectAllStereoMatrices(m_Ctx);
+  int previewIdx =
+      (m_SBSCbufferIndex >= 0 && m_SBSCbufferIndex < (int)candidates.size()) ? m_SBSCbufferIndex : 0;
+
+  // First 4 floats (row 0) of each matrix slot, read before opening the dialog.
+  float prevVP0[4] = {}, prevVP1[4] = {}, prevVPInv0[4] = {}, prevVPInv1[4] = {};
+  float prevCam0[4] = {}, prevCam1[4] = {};
+  if(previewIdx < (int)candidates.size())
+  {
+    const StereoMatrixConfig &cfg = candidates[previewIdx];
+    bool readDone = false;
+    m_Ctx.Replay().AsyncInvoke(
+        lit("SBSPreview"), [&prevVP0, &prevVP1, &prevVPInv0, &prevVPInv1, &prevCam0, &prevCam1,
+                            &readDone, cfg](IReplayController *r) {
+          bytebuf data = r->GetBufferData(cfg.cbufId, cfg.cbufByteOffset, cfg.minBytesNeeded);
+          if((int)data.size() >= (int)cfg.minBytesNeeded)
+          {
+            memcpy(prevVP0, data.data() + cfg.viewProjOffset[0], 16);
+            memcpy(prevVP1, data.data() + cfg.viewProjOffset[1], 16);
+            memcpy(prevVPInv0, data.data() + cfg.viewProjInvOffset[0], 16);
+            memcpy(prevVPInv1, data.data() + cfg.viewProjInvOffset[1], 16);
+            if(cfg.hasCameraPosAdjust)
+            {
+              memcpy(prevCam0, data.data() + cfg.cameraPosAdjustOffset[0], 16);
+              memcpy(prevCam1, data.data() + cfg.cameraPosAdjustOffset[1], 16);
+            }
+          }
+          readDone = true;
+        });
+    for(int i = 0; !readDone && i < 100; i++)
+      QThread::msleep(5);
+  }
+
+  // Helper: format a float4 row as "X.XXX  X.XXX  X.XXX  X.XXX".
+  auto fmtRow = [](const float v[4]) {
+    return QFormatStr("%1  %2  %3  %4")
+        .arg((double)v[0], 7, 'f', 3)
+        .arg((double)v[1], 7, 'f', 3)
+        .arg((double)v[2], 7, 'f', 3)
+        .arg((double)v[3], 7, 'f', 3);
+  };
+
   QDialog dlg(this);
   dlg.setWindowTitle(tr("SBS Stereo Settings"));
   dlg.setWindowFlags(dlg.windowFlags() & ~Qt::WindowContextHelpButtonHint);
@@ -4555,7 +4681,6 @@ void TextureViewer::on_sbsSettings_clicked()
   form->addRow(phase2Check);
 
   // --- cbuffer selection ---
-  rdcarray<StereoMatrixConfig> candidates = detectAllStereoMatrices(m_Ctx);
   QComboBox *cbufCombo = new QComboBox(&dlg);
   cbufCombo->addItem(tr("Auto (try all in order)"), -1);
   for(int i = 0; i < (int)candidates.size(); i++)
@@ -4565,10 +4690,66 @@ void TextureViewer::on_sbsSettings_clicked()
   else
     cbufCombo->setCurrentIndex(m_SBSCbufferIndex + 1);    // +1 for the Auto entry
   cbufCombo->setToolTip(
-      tr("Which constant buffer's ViewProj/ViewProjInverse matrices to use for Phase 2\n"
-         "reprojection. Auto tries each detected candidate and uses the first whose result\n"
-         "lands within the rendered region. Pick a specific entry if auto chooses wrongly."));
+      tr("Which constant buffer to use for Phase 2 reprojection. Auto tries each detected\n"
+         "candidate and uses the first whose result lands within the rendered region."));
   form->addRow(tr("cbuffer:"), cbufCombo);
+
+  // --- Per-slot variable info and byte offset overrides ---
+  // Show auto-detected variable names, detected offsets, and first-row values.
+  // Each slot can be overridden with a manual byte offset.
+  auto makeOffsetRow = [&](const QString &label, const QString &varName, uint32_t detectedOffset,
+                           int currentOverride, const float rowVals[4]) {
+    QWidget *rowWidget = new QWidget(&dlg);
+    QHBoxLayout *hbox = new QHBoxLayout(rowWidget);
+    hbox->setContentsMargins(0, 0, 0, 0);
+
+    // Variable name + detected offset info
+    QString info = varName.isEmpty() ? tr("(not found)")
+                                     : QFormatStr("%1 @ %2").arg(varName).arg(detectedOffset);
+    QLabel *infoLbl = new QLabel(info, rowWidget);
+    infoLbl->setMinimumWidth(180);
+    hbox->addWidget(infoLbl);
+
+    // First-row values for quick sanity check
+    QLabel *valLbl = new QLabel(QFormatStr("[%1]").arg(fmtRow(rowVals)), rowWidget);
+    valLbl->setStyleSheet(lit("font-family: monospace; color: gray;"));
+    hbox->addWidget(valLbl, 1);
+
+    // Manual override checkbox + spinbox
+    QCheckBox *ovChk = new QCheckBox(tr("Override:"), rowWidget);
+    QSpinBox *ovBox = new QSpinBox(rowWidget);
+    ovBox->setRange(0, 65535);
+    ovChk->setChecked(currentOverride >= 0);
+    ovBox->setValue(currentOverride >= 0 ? currentOverride : (int)detectedOffset);
+    ovBox->setEnabled(currentOverride >= 0);
+    QObject::connect(ovChk, &QCheckBox::toggled, ovBox, &QSpinBox::setEnabled);
+    hbox->addWidget(ovChk);
+    hbox->addWidget(ovBox);
+
+    form->addRow(label, rowWidget);
+    return qMakePair(ovChk, ovBox);
+  };
+
+  const StereoMatrixConfig *sel =
+      (previewIdx < (int)candidates.size()) ? &candidates[previewIdx] : NULL;
+  static const float zeros[4] = {};
+
+  auto vpEye0 = makeOffsetRow(tr("ViewProj[0]:"), sel ? sel->viewProjVarName : QString(),
+                              sel ? sel->viewProjOffset[0] : 0u, m_SBSVPEye0Offset, prevVP0);
+  auto vpEye1 = makeOffsetRow(tr("ViewProj[1]:"), sel ? sel->viewProjVarName : QString(),
+                              sel ? sel->viewProjOffset[1] : 64u, m_SBSVPEye1Offset, prevVP1);
+  auto vpInvEye0 =
+      makeOffsetRow(tr("ViewProjInv[0]:"), sel ? sel->viewProjInvVarName : QString(),
+                    sel ? sel->viewProjInvOffset[0] : 0u, m_SBSVPInvEye0Offset, prevVPInv0);
+  auto vpInvEye1 =
+      makeOffsetRow(tr("ViewProjInv[1]:"), sel ? sel->viewProjInvVarName : QString(),
+                    sel ? sel->viewProjInvOffset[1] : 64u, m_SBSVPInvEye1Offset, prevVPInv1);
+  auto camEye0 = makeOffsetRow(tr("CamPosAdj[0]:"), sel ? sel->cameraPosVarName : QString(),
+                               sel ? sel->cameraPosAdjustOffset[0] : 0u, m_SBSCamPosEye0Offset,
+                               (sel && sel->hasCameraPosAdjust) ? prevCam0 : zeros);
+  auto camEye1 = makeOffsetRow(tr("CamPosAdj[1]:"), sel ? sel->cameraPosVarName : QString(),
+                               sel ? sel->cameraPosAdjustOffset[1] : 16u, m_SBSCamPosEye1Offset,
+                               (sel && sel->hasCameraPosAdjust) ? prevCam1 : zeros);
 
   // --- Dynamic resolution override ---
   QSpinBox *wBox = new QSpinBox(&dlg);
@@ -4612,6 +4793,12 @@ void TextureViewer::on_sbsSettings_clicked()
   {
     m_SBSPhase2Enabled = phase2Check->isChecked();
     m_SBSCbufferIndex = cbufCombo->currentData().toInt();
+    m_SBSVPEye0Offset = vpEye0.first->isChecked() ? vpEye0.second->value() : -1;
+    m_SBSVPEye1Offset = vpEye1.first->isChecked() ? vpEye1.second->value() : -1;
+    m_SBSVPInvEye0Offset = vpInvEye0.first->isChecked() ? vpInvEye0.second->value() : -1;
+    m_SBSVPInvEye1Offset = vpInvEye1.first->isChecked() ? vpInvEye1.second->value() : -1;
+    m_SBSCamPosEye0Offset = camEye0.first->isChecked() ? camEye0.second->value() : -1;
+    m_SBSCamPosEye1Offset = camEye1.first->isChecked() ? camEye1.second->value() : -1;
     m_SBSDynResW = wBox->value();
     m_SBSDynResH = hBox->value();
   }

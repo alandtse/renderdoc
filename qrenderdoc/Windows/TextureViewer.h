@@ -257,6 +257,9 @@ private:
 
   void UI_UpdateChannels();
 
+  void UI_UpdatePickedCrosshair();
+  float SBSDynResHalfWidth();
+
   void HighlightUsage();
 
   void SelectPreview(ResourcePreview *prev);
@@ -396,6 +399,7 @@ private:
   // Small badge label shown at the top-left of the render area displaying the picked pixel.
   // Parented to the render container (not the GPU-rendered widget) to avoid native-window conflicts.
   QLabel *m_PickedLabel = NULL;
+  QWidget *m_PickedCrosshair = NULL;
 
   // Pixel value comparison label populated after "Other Eye" jump.
   QLabel *m_SBSEyeCompare = NULL;
@@ -405,6 +409,14 @@ private:
 
   // Which detected cbuffer candidate to use for Phase 2 (-1 = auto, 0+ = specific index).
   int m_SBSCbufferIndex = -1;
+
+  // Per-slot byte offset overrides for Phase 2 VP matrices (-1 = use auto-detected offset).
+  int m_SBSVPEye0Offset = -1;
+  int m_SBSVPEye1Offset = -1;
+  int m_SBSVPInvEye0Offset = -1;
+  int m_SBSVPInvEye1Offset = -1;
+  int m_SBSCamPosEye0Offset = -1;
+  int m_SBSCamPosEye1Offset = -1;
 
   // Dynamic resolution override for SBS reprojection (0 = auto-detect from viewport).
   int m_SBSDynResW = 0;
