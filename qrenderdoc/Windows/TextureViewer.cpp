@@ -4393,18 +4393,10 @@ float TextureViewer::SBSDynResHalfWidth()
 
 bool TextureViewer::detectSBSFrame() const
 {
-  TextureDescription *tex = const_cast<TextureViewer *>(this)->GetCurrentTexture();
-  if(!tex || tex->width == 0 || tex->height == 0)
-    return false;
-  // Wide aspect ratio (width >= 2x height) is the primary SBS indicator.
-  if(tex->width < tex->height * 2)
-    return false;
-  // Additionally require that the viewport suggests per-eye rendering.
-  Viewport vp = m_Ctx.CurPipelineState().GetViewport(0);
-  if(vp.width <= 0.0f)
-    return true;    // no viewport info; wide texture alone is enough
-  float ratio = vp.width / (float)tex->width;
-  return ratio <= 0.6f;    // viewport covers ≤60% of texture width → per-eye render
+  // Reliable SBS detection: the pixel shader must have a constant buffer containing
+  // float4x4[>=2] arrays named like ViewProj and ViewProjInverse. Texture dimensions
+  // alone are not a reliable signal — many non-VR textures have wide aspect ratios.
+  return !detectAllStereoMatrices(m_Ctx).empty();
 }
 
 void TextureViewer::on_sbsToggle_toggled(bool checked)
