@@ -4399,7 +4399,7 @@ bool TextureViewer::detectSBSFrame() const
   return !detectAllStereoMatrices(m_Ctx).empty();
 }
 
-void TextureViewer::on_sbsToggle_toggled(bool checked)
+void TextureViewer::on_sbsToggle_clicked(bool checked)
 {
   // Manual toggle disables auto-enable for this session.
   m_SBSAutoEnable = false;
@@ -4467,28 +4467,6 @@ void TextureViewer::on_jumpOtherEye_clicked()
   if(m_SBSPhase2Enabled)
   {
     matCandidates = detectAllStereoMatrices(m_Ctx);
-    // Apply any per-slot byte offset overrides the user has set.
-    for(int ci = 0; ci < (int)matCandidates.size(); ci++)
-    {
-      StereoMatrixConfig &c = matCandidates[ci];
-      if(m_SBSVPEye0Offset >= 0)
-        c.viewProjOffset[0] = (uint32_t)m_SBSVPEye0Offset;
-      if(m_SBSVPEye1Offset >= 0)
-        c.viewProjOffset[1] = (uint32_t)m_SBSVPEye1Offset;
-      if(m_SBSVPInvEye0Offset >= 0)
-        c.viewProjInvOffset[0] = (uint32_t)m_SBSVPInvEye0Offset;
-      if(m_SBSVPInvEye1Offset >= 0)
-        c.viewProjInvOffset[1] = (uint32_t)m_SBSVPInvEye1Offset;
-      if(m_SBSCamPosEye0Offset >= 0)
-        c.cameraPosAdjustOffset[0] = (uint32_t)m_SBSCamPosEye0Offset;
-      if(m_SBSCamPosEye1Offset >= 0)
-        c.cameraPosAdjustOffset[1] = (uint32_t)m_SBSCamPosEye1Offset;
-      // Recompute minBytesNeeded after any override.
-      uint32_t maxEnd = qMax(c.viewProjOffset[1], c.viewProjInvOffset[1]) + 64u;
-      if(c.hasCameraPosAdjust)
-        maxEnd = qMax(maxEnd, c.cameraPosAdjustOffset[1] + 16u);
-      c.minBytesNeeded = maxEnd;
-    }
   }
   int sbsCbufferIndex = m_SBSCbufferIndex;
 
@@ -4636,12 +4614,10 @@ void TextureViewer::on_jumpOtherEye_clicked()
   if(m_SBSEyeCompare)
   {
     auto fmtVal = [](float v) { return QFormatStr("%1").arg((double)v, 9, 'f', 4); };
-    auto fmtDelta = [](float d) -> QString {
+    float eps = (float)m_SBSDeltaEpsilon;
+    auto fmtDelta = [eps](float d) -> QString {
       QString s = QFormatStr("%1").arg((double)d, 9, 'f', 4);
-      const char *col = d < 0.001f  ? "#888888"
-                        : d < 0.01f ? "#ffcc44"
-                        : d < 0.1f  ? "#ff8800"
-                                    : "#ff4444";
+      const char *col = (d > -eps && d < eps) ? "#000000" : (d > 0.0f) ? "#007700" : "#cc0000";
       return QFormatStr("<span style='color:%1'>%2</span>").arg(QLatin1String(col)).arg(s);
     };
 
@@ -4658,11 +4634,11 @@ void TextureViewer::on_jumpOtherEye_clicked()
                          .arg(fmtVal(dstVal.floatValue[2]))
                          .arg(fmtVal(dstVal.floatValue[3]));
     QString deltaRow = QFormatStr("%1 %2 %3 %4")
-                           .arg(fmtDelta(qAbs(dstVal.floatValue[0] - srcVal.floatValue[0])))
-                           .arg(fmtDelta(qAbs(dstVal.floatValue[1] - srcVal.floatValue[1])))
-                           .arg(fmtDelta(qAbs(dstVal.floatValue[2] - srcVal.floatValue[2])))
-                           .arg(fmtDelta(qAbs(dstVal.floatValue[3] - srcVal.floatValue[3])));
-    QString text = QFormatStr("<pre><b>%1:</b> %2\n<b>%3:</b> %4\n<b>D:</b>  %5</pre>")
+                           .arg(fmtDelta(dstVal.floatValue[0] - srcVal.floatValue[0]))
+                           .arg(fmtDelta(dstVal.floatValue[1] - srcVal.floatValue[1]))
+                           .arg(fmtDelta(dstVal.floatValue[2] - srcVal.floatValue[2]))
+                           .arg(fmtDelta(dstVal.floatValue[3] - srcVal.floatValue[3]));
+    QString text = QFormatStr("<pre><b>%1:</b> %2\n<b>%3:</b> %4\n<b>D:</b> %5\n</pre>")
                        .arg(srcEye)
                        .arg(srcRow)
                        .arg(dstEye)
@@ -4726,26 +4702,6 @@ void TextureViewer::updateSBSCompare()
   if(m_SBSPhase2Enabled)
   {
     matCandidates = detectAllStereoMatrices(m_Ctx);
-    for(int ci = 0; ci < (int)matCandidates.size(); ci++)
-    {
-      StereoMatrixConfig &c = matCandidates[ci];
-      if(m_SBSVPEye0Offset >= 0)
-        c.viewProjOffset[0] = (uint32_t)m_SBSVPEye0Offset;
-      if(m_SBSVPEye1Offset >= 0)
-        c.viewProjOffset[1] = (uint32_t)m_SBSVPEye1Offset;
-      if(m_SBSVPInvEye0Offset >= 0)
-        c.viewProjInvOffset[0] = (uint32_t)m_SBSVPInvEye0Offset;
-      if(m_SBSVPInvEye1Offset >= 0)
-        c.viewProjInvOffset[1] = (uint32_t)m_SBSVPInvEye1Offset;
-      if(m_SBSCamPosEye0Offset >= 0)
-        c.cameraPosAdjustOffset[0] = (uint32_t)m_SBSCamPosEye0Offset;
-      if(m_SBSCamPosEye1Offset >= 0)
-        c.cameraPosAdjustOffset[1] = (uint32_t)m_SBSCamPosEye1Offset;
-      uint32_t maxEnd = qMax(c.viewProjOffset[1], c.viewProjInvOffset[1]) + 64u;
-      if(c.hasCameraPosAdjust)
-        maxEnd = qMax(maxEnd, c.cameraPosAdjustOffset[1] + 16u);
-      c.minBytesNeeded = maxEnd;
-    }
   }
   int sbsCbufferIndex = m_SBSCbufferIndex;
 
@@ -4826,12 +4782,10 @@ void TextureViewer::updateSBSCompare()
       if(!m_SBSEyeCompare)
         return;
       auto fmtVal = [](float v) { return QFormatStr("%1").arg((double)v, 9, 'f', 4); };
-      auto fmtDelta = [](float d) -> QString {
+      float eps = (float)m_SBSDeltaEpsilon;
+      auto fmtDelta = [eps](float d) -> QString {
         QString s = QFormatStr("%1").arg((double)d, 9, 'f', 4);
-        const char *col = d < 0.001f  ? "#888888"
-                          : d < 0.01f ? "#ffcc44"
-                          : d < 0.1f  ? "#ff8800"
-                                      : "#ff4444";
+        const char *col = (d > -eps && d < eps) ? "#000000" : (d > 0.0f) ? "#007700" : "#cc0000";
         return QFormatStr("<span style='color:%1'>%2</span>").arg(QLatin1String(col)).arg(s);
       };
 
@@ -4848,11 +4802,11 @@ void TextureViewer::updateSBSCompare()
                            .arg(fmtVal(dstVal.floatValue[2]))
                            .arg(fmtVal(dstVal.floatValue[3]));
       QString deltaRow = QFormatStr("%1 %2 %3 %4")
-                             .arg(fmtDelta(qAbs(dstVal.floatValue[0] - srcVal.floatValue[0])))
-                             .arg(fmtDelta(qAbs(dstVal.floatValue[1] - srcVal.floatValue[1])))
-                             .arg(fmtDelta(qAbs(dstVal.floatValue[2] - srcVal.floatValue[2])))
-                             .arg(fmtDelta(qAbs(dstVal.floatValue[3] - srcVal.floatValue[3])));
-      QString text = QFormatStr("<pre><b>%1:</b> %2\n<b>%3:</b> %4\n<b>D:</b>  %5</pre>")
+                             .arg(fmtDelta(dstVal.floatValue[0] - srcVal.floatValue[0]))
+                             .arg(fmtDelta(dstVal.floatValue[1] - srcVal.floatValue[1]))
+                             .arg(fmtDelta(dstVal.floatValue[2] - srcVal.floatValue[2]))
+                             .arg(fmtDelta(dstVal.floatValue[3] - srcVal.floatValue[3]));
+      QString text = QFormatStr("<pre><b>%1:</b> %2\n<b>%3:</b> %4\n<b>D:</b> %5\n</pre>")
                          .arg(srcEye)
                          .arg(srcRow)
                          .arg(dstEye)
@@ -4927,7 +4881,7 @@ void TextureViewer::on_sbsSettings_clicked()
 
   // --- cbuffer selection ---
   QComboBox *cbufCombo = new QComboBox(&dlg);
-  cbufCombo->addItem(tr("Auto (try all in order)"), -1);
+  cbufCombo->addItem(tr("Auto"), -1);
   for(int i = 0; i < (int)candidates.size(); i++)
     cbufCombo->addItem(candidates[i].description, i);
   if(m_SBSCbufferIndex < 0 || m_SBSCbufferIndex >= (int)candidates.size())
@@ -4939,62 +4893,45 @@ void TextureViewer::on_sbsSettings_clicked()
          "candidate and uses the first whose result lands within the rendered region."));
   form->addRow(tr("cbuffer:"), cbufCombo);
 
-  // --- Per-slot variable info and byte offset overrides ---
-  // Show auto-detected variable names, detected offsets, and first-row values.
-  // Each slot can be overridden with a manual byte offset.
+  // --- Per-slot variable info (read-only) ---
+  // Shows auto-detected variable names, byte offsets, and first-row values for reference.
   auto makeOffsetRow = [&](const QString &label, const QString &varName, uint32_t detectedOffset,
-                           int currentOverride, const float rowVals[4]) {
+                           const float rowVals[4]) {
     QWidget *rowWidget = new QWidget(&dlg);
     QHBoxLayout *hbox = new QHBoxLayout(rowWidget);
     hbox->setContentsMargins(0, 0, 0, 0);
 
-    // Variable name + detected offset info
     QString info = varName.isEmpty() ? tr("(not found)")
                                      : QFormatStr("%1 @ %2").arg(varName).arg(detectedOffset);
     QLabel *infoLbl = new QLabel(info, rowWidget);
     infoLbl->setMinimumWidth(180);
     hbox->addWidget(infoLbl);
 
-    // First-row values for quick sanity check
     QLabel *valLbl = new QLabel(QFormatStr("[%1]").arg(fmtRow(rowVals)), rowWidget);
     valLbl->setStyleSheet(lit("font-family: monospace; color: gray;"));
     hbox->addWidget(valLbl, 1);
 
-    // Manual override checkbox + spinbox
-    QCheckBox *ovChk = new QCheckBox(tr("Override:"), rowWidget);
-    QSpinBox *ovBox = new QSpinBox(rowWidget);
-    ovBox->setRange(0, 65535);
-    ovChk->setChecked(currentOverride >= 0);
-    ovBox->setValue(currentOverride >= 0 ? currentOverride : (int)detectedOffset);
-    ovBox->setEnabled(currentOverride >= 0);
-    QObject::connect(ovChk, &QCheckBox::toggled, ovBox, &QSpinBox::setEnabled);
-    hbox->addWidget(ovChk);
-    hbox->addWidget(ovBox);
-
     form->addRow(label, rowWidget);
-    return qMakePair(ovChk, ovBox);
   };
 
   const StereoMatrixConfig *sel =
       (previewIdx < (int)candidates.size()) ? &candidates[previewIdx] : NULL;
   static const float zeros[4] = {};
 
-  auto vpEye0 = makeOffsetRow(tr("ViewProj[0]:"), sel ? sel->viewProjVarName : QString(),
-                              sel ? sel->viewProjOffset[0] : 0u, m_SBSVPEye0Offset, prevVP0);
-  auto vpEye1 = makeOffsetRow(tr("ViewProj[1]:"), sel ? sel->viewProjVarName : QString(),
-                              sel ? sel->viewProjOffset[1] : 64u, m_SBSVPEye1Offset, prevVP1);
-  auto vpInvEye0 =
-      makeOffsetRow(tr("ViewProjInv[0]:"), sel ? sel->viewProjInvVarName : QString(),
-                    sel ? sel->viewProjInvOffset[0] : 0u, m_SBSVPInvEye0Offset, prevVPInv0);
-  auto vpInvEye1 =
-      makeOffsetRow(tr("ViewProjInv[1]:"), sel ? sel->viewProjInvVarName : QString(),
-                    sel ? sel->viewProjInvOffset[1] : 64u, m_SBSVPInvEye1Offset, prevVPInv1);
-  auto camEye0 = makeOffsetRow(tr("CamPosAdj[0]:"), sel ? sel->cameraPosVarName : QString(),
-                               sel ? sel->cameraPosAdjustOffset[0] : 0u, m_SBSCamPosEye0Offset,
-                               (sel && sel->hasCameraPosAdjust) ? prevCam0 : zeros);
-  auto camEye1 = makeOffsetRow(tr("CamPosAdj[1]:"), sel ? sel->cameraPosVarName : QString(),
-                               sel ? sel->cameraPosAdjustOffset[1] : 16u, m_SBSCamPosEye1Offset,
-                               (sel && sel->hasCameraPosAdjust) ? prevCam1 : zeros);
+  makeOffsetRow(tr("ViewProj[0]:"), sel ? sel->viewProjVarName : QString(),
+                sel ? sel->viewProjOffset[0] : 0u, prevVP0);
+  makeOffsetRow(tr("ViewProj[1]:"), sel ? sel->viewProjVarName : QString(),
+                sel ? sel->viewProjOffset[1] : 64u, prevVP1);
+  makeOffsetRow(tr("ViewProjInv[0]:"), sel ? sel->viewProjInvVarName : QString(),
+                sel ? sel->viewProjInvOffset[0] : 0u, prevVPInv0);
+  makeOffsetRow(tr("ViewProjInv[1]:"), sel ? sel->viewProjInvVarName : QString(),
+                sel ? sel->viewProjInvOffset[1] : 64u, prevVPInv1);
+  makeOffsetRow(tr("CamPosAdj[0]:"), sel ? sel->cameraPosVarName : QString(),
+                sel ? sel->cameraPosAdjustOffset[0] : 0u,
+                (sel && sel->hasCameraPosAdjust) ? prevCam0 : zeros);
+  makeOffsetRow(tr("CamPosAdj[1]:"), sel ? sel->cameraPosVarName : QString(),
+                sel ? sel->cameraPosAdjustOffset[1] : 16u,
+                (sel && sel->hasCameraPosAdjust) ? prevCam1 : zeros);
 
   // --- Dynamic resolution override ---
   QSpinBox *wBox = new QSpinBox(&dlg);
@@ -5032,9 +4969,24 @@ void TextureViewer::on_sbsSettings_clicked()
 
   // --- Auto-enable checkbox ---
   QCheckBox *autoEnableCheck =
-      new QCheckBox(tr("Auto-enable when split-frame texture is detected"), &dlg);
+      new QCheckBox(tr("Auto-enable SBS when stereo matrices are detected"), &dlg);
+  autoEnableCheck->setToolTip(
+      tr("When enabled, SBS mode turns on automatically whenever the current frame's pixel shader\n"
+         "contains recognizable stereo ViewProj matrices. Left-clicking the SBS button overrides\n"
+         "this for the current session."));
   autoEnableCheck->setChecked(m_SBSAutoEnable);
   form->addRow(autoEnableCheck);
+
+  // --- Delta epsilon ---
+  QDoubleSpinBox *epsBox = new QDoubleSpinBox(&dlg);
+  epsBox->setRange(0.0, 1.0);
+  epsBox->setSingleStep(0.001);
+  epsBox->setDecimals(4);
+  epsBox->setValue(m_SBSDeltaEpsilon);
+  epsBox->setToolTip(
+      tr("Values within this range of zero are shown as neutral (black) in the\n"
+         "eye comparison delta row. Positive deltas are green, negative are red."));
+  form->addRow(tr("Delta epsilon:"), epsBox);
 
   // --- Manual matrix override section ---
   // Helpers to convert between float4x4 and multi-line text.
@@ -5155,15 +5107,10 @@ void TextureViewer::on_sbsSettings_clicked()
   {
     m_SBSPhase2Enabled = phase2Check->isChecked();
     m_SBSCbufferIndex = cbufCombo->currentData().toInt();
-    m_SBSVPEye0Offset = vpEye0.first->isChecked() ? vpEye0.second->value() : -1;
-    m_SBSVPEye1Offset = vpEye1.first->isChecked() ? vpEye1.second->value() : -1;
-    m_SBSVPInvEye0Offset = vpInvEye0.first->isChecked() ? vpInvEye0.second->value() : -1;
-    m_SBSVPInvEye1Offset = vpInvEye1.first->isChecked() ? vpInvEye1.second->value() : -1;
-    m_SBSCamPosEye0Offset = camEye0.first->isChecked() ? camEye0.second->value() : -1;
-    m_SBSCamPosEye1Offset = camEye1.first->isChecked() ? camEye1.second->value() : -1;
     m_SBSDynResW = wBox->value();
     m_SBSDynResH = hBox->value();
     m_SBSAutoEnable = autoEnableCheck->isChecked();
+    m_SBSDeltaEpsilon = epsBox->value();
 
     // Parse and store manual matrices if use-manual is checked.
     m_SBSUseManualMatrices = useManualCheck->isChecked();

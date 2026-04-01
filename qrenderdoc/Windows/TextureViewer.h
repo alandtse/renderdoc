@@ -196,7 +196,7 @@ private slots:
   void on_saveTex_clicked();
   void on_debugPixelContext_clicked();
   void on_pixelHistory_clicked();
-  void on_sbsToggle_toggled(bool checked);
+  void on_sbsToggle_clicked(bool checked);
   void on_jumpOtherEye_clicked();
   void updateSBSCompare();
 
@@ -409,13 +409,8 @@ private:
   // Which detected cbuffer candidate to use for matrix reprojection (-1 = auto, 0+ = specific index).
   int m_SBSCbufferIndex = -1;
 
-  // Per-slot byte offset overrides for VP matrices (-1 = use auto-detected offset).
-  int m_SBSVPEye0Offset = -1;
-  int m_SBSVPEye1Offset = -1;
-  int m_SBSVPInvEye0Offset = -1;
-  int m_SBSVPInvEye1Offset = -1;
-  int m_SBSCamPosEye0Offset = -1;
-  int m_SBSCamPosEye1Offset = -1;
+  // Epsilon for eye-comparison delta coloring (neutral band around zero).
+  double m_SBSDeltaEpsilon = 0.001;
 
   // Dynamic resolution override for SBS reprojection (0 = auto-detect from viewport).
   int m_SBSDynResW = 0;
