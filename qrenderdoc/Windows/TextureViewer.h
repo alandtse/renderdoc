@@ -37,7 +37,7 @@ namespace Ui
 class TextureViewer;
 }
 
-class PickedPixelOverlay;
+class QLabel;
 class RDTreeWidgetItem;
 class ResourcePreview;
 class ThumbnailStrip;
@@ -393,8 +393,9 @@ private:
 
   SBSMapper m_SBSMapper;
 
-  // Blinking overlay dot shown on the main render widget at the picked pixel.
-  PickedPixelOverlay *m_PickedOverlay = NULL;
+  // Small badge label shown at the top-left of the render area displaying the picked pixel.
+  // Parented to the render container (not the GPU-rendered widget) to avoid native-window conflicts.
+  QLabel *m_PickedLabel = NULL;
 
   // Dynamic resolution override for SBS reprojection (0 = auto-detect from viewport).
   int m_SBSDynResW = 0;

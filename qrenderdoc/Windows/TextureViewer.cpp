@@ -40,7 +40,6 @@
 #include <QPointer>
 #include <QSpinBox>
 #include <QStyledItemDelegate>
-#include <QTimer>
 #include "Code/QRDUtils.h"
 #include "Code/Resources.h"
 #include "Dialogs/TextureSaveDialog.h"
@@ -122,81 +121,6 @@ static QMap<QString, ShaderEncoding> encodingExtensions = {
     {lit("spvasm"), ShaderEncoding::SPIRVAsm},
     {lit("spvasm"), ShaderEncoding::OpenGLSPIRVAsm},
     {lit("slang"), ShaderEncoding::Slang},
-};
-
-// Transparent native overlay drawn on top of the main render widget.
-// Renders a blinking two-ring circle at the currently picked texture pixel.
-// No Q_OBJECT needed — uses lambda timer connection and virtual paintEvent.
-class PickedPixelOverlay : public QWidget
-{
-public:
-  explicit PickedPixelOverlay(QWidget *parent) : QWidget(parent)
-  {
-    // WA_NativeWindow makes this a real HWND child of the render widget's HWND,
-    // so raise() will place it above the GPU-rendered m_Internal sibling.
-    setAttribute(Qt::WA_NativeWindow);
-    setAttribute(Qt::WA_TransparentForMouseEvents);
-    setAttribute(Qt::WA_NoSystemBackground);
-    setAttribute(Qt::WA_TranslucentBackground);
-    setGeometry(parent->rect());
-
-    QTimer *t = new QTimer(this);
-    QObject::connect(t, &QTimer::timeout, [this]() {
-      m_BlinkOn = !m_BlinkOn;
-      raise();
-      update();
-    });
-    t->start(500);
-  }
-
-  // Call whenever the picked point or the texture transform changes.
-  void refresh(QPoint texPx, float scale, float offX, float offY, float dpr)
-  {
-    m_TexPx = texPx;
-    m_Scale = scale;
-    m_OffX = offX;
-    m_OffY = offY;
-    m_DPR = dpr;
-    raise();
-    update();
-  }
-
-protected:
-  void paintEvent(QPaintEvent *) override
-  {
-    if(m_TexPx.x() < 0 || !m_BlinkOn)
-      return;
-
-    // Map texture pixel → logical screen pixel within this overlay widget.
-    // texPixel = (screenDevicePx - offset) / scale  →  screenLogical = screenDevicePx / dpr
-    float sx = ((float)m_TexPx.x() * m_Scale + m_OffX) / m_DPR;
-    float sy = ((float)m_TexPx.y() * m_Scale + m_OffY) / m_DPR;
-
-    // Skip if the point is scrolled off screen.
-    if(sx < -10.0f || sy < -10.0f || sx > width() + 10 || sy > height() + 10)
-      return;
-
-    QPainter p(this);
-    p.setRenderHint(QPainter::Antialiasing);
-    // Outer dark ring for contrast against any background.
-    p.setPen(QPen(Qt::black, 3));
-    p.setBrush(Qt::NoBrush);
-    p.drawEllipse(QPointF(sx, sy), 7.0, 7.0);
-    // Inner bright ring.
-    p.setPen(QPen(Qt::white, 2));
-    p.drawEllipse(QPointF(sx, sy), 5.0, 5.0);
-    // Centre dot.
-    p.setPen(Qt::NoPen);
-    p.setBrush(QColor(255, 80, 80));
-    p.drawEllipse(QPointF(sx, sy), 2.0, 2.0);
-  }
-
-private:
-  bool m_BlinkOn = true;
-  QPoint m_TexPx = {-1, -1};
-  float m_Scale = 1.0f;
-  float m_OffX = 0.0f, m_OffY = 0.0f;
-  float m_DPR = 1.0f;
 };
 
 Q_DECLARE_METATYPE(Following);
@@ -773,8 +697,16 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
   QObject::connect(ui->pixelContext, &CustomPaintWidget::keyPress, this,
                    &TextureViewer::render_keyPress);
 
-  m_PickedOverlay = new PickedPixelOverlay(ui->render);
-  m_PickedOverlay->show();
+  // Picked-pixel badge: a small label in the top-left corner of the render area.
+  // Parented to ui->renderContainer (the QFrame that holds render + scrollbars) so it
+  // sits in non-GPU layout space and is always readable without touching the GPU surface.
+  m_PickedLabel = new QLabel(ui->render->parentWidget());
+  m_PickedLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+  m_PickedLabel->setStyleSheet(
+      lit("QLabel { background: rgba(0,0,0,160); color: #ffcc44; padding: 2px 4px; "
+          "font-weight: bold; border-radius: 3px; }"));
+  m_PickedLabel->hide();
+  m_PickedLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
 }
 
 TextureViewer::~TextureViewer()
@@ -1246,9 +1178,31 @@ void TextureViewer::UI_UpdateStatusText()
   ui->pickedText->setText(pickedText);
   ui->pickedText->setToolTip(pickedTooltip);
 
-  if(m_PickedOverlay)
-    m_PickedOverlay->refresh(m_PickedPoint, m_TexDisplay.scale, m_TexDisplay.xOffset,
-                             m_TexDisplay.yOffset, ui->render->devicePixelRatioF());
+  if(m_PickedLabel)
+  {
+    if(m_PickedPoint.x() >= 0)
+    {
+      QString eyeTag;
+      TextureDescription *t = GetCurrentTexture();
+      if(m_SBSMapper.enabled && t && t->width > 0)
+      {
+        uint32_t eye = m_SBSMapper.eyeIndexForPixel(m_PickedPoint, t->width);
+        eyeTag = eye == 0 ? lit(" [L]") : lit(" [R]");
+      }
+      m_PickedLabel->setText(
+          QFormatStr("⊕ %1, %2%3").arg(m_PickedPoint.x()).arg(m_PickedPoint.y()).arg(eyeTag));
+      m_PickedLabel->adjustSize();
+      // Position in the top-left corner of the render area.
+      QPoint renderTopLeft = ui->render->mapTo(m_PickedLabel->parentWidget(), QPoint(4, 4));
+      m_PickedLabel->move(renderTopLeft);
+      m_PickedLabel->show();
+      m_PickedLabel->raise();
+    }
+    else
+    {
+      m_PickedLabel->hide();
+    }
+  }
 }
 
 void TextureViewer::UI_UpdateTextureDetails()
@@ -2825,9 +2779,6 @@ void TextureViewer::render_resize(QResizeEvent *e)
 {
   UI_UpdateFittedScale();
   UI_CalcScrollbars();
-
-  if(m_PickedOverlay)
-    m_PickedOverlay->setGeometry(ui->render->rect());
 
   INVOKE_MEMFN(RT_UpdateAndDisplay);
 }
