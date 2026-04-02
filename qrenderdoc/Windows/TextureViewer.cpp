@@ -4384,6 +4384,16 @@ void TextureViewer::UI_UpdatePickedCrosshair()
   int x = renderOrigin.x() + (int)sx;
   int y = renderOrigin.y() + (int)sy;
 
+  // Hide when the picked pixel has been panned fully outside the render widget so the
+  // marker doesn't bleed over adjacent sibling UI.
+  QRect renderRect(renderOrigin.x(), renderOrigin.y(), ui->render->width(), ui->render->height());
+  if(!renderRect.intersects(QRect(x, y, pixSize, pixSize)))
+  {
+    for(int i = 0; i < 4; i++)
+      m_PickedCrosshair[i]->hide();
+    return;
+  }
+
   // Top, bottom, left side (excl. corners), right side (excl. corners).
   int innerH = qMax(0, pixSize - 2);
   m_PickedCrosshair[0]->setGeometry(x, y, pixSize, 1);                     // top
@@ -4418,9 +4428,12 @@ float TextureViewer::SBSDynResHalfWidth()
 
 bool TextureViewer::detectSBSFrame() const
 {
-  // Reliable SBS detection: the pixel shader must have a constant buffer containing
-  // float4x4[>=2] arrays named like ViewProj and ViewProjInverse. Texture dimensions
-  // alone are not a reliable signal — many non-VR textures have wide aspect ratios.
+  // Gate on landscape orientation first: an SBS texture always has width > height
+  // (each eye occupies half the width). This prevents auto-enabling on square shadow
+  // maps, portrait textures, or unrelated inputs that happen to be bound during a
+  // stereo draw.
+  if(!m_CachedTexture || m_CachedTexture->width <= m_CachedTexture->height)
+    return false;
   return !detectAllStereoMatrices(m_Ctx).empty();
 }
 
@@ -4603,31 +4616,53 @@ void TextureViewer::on_jumpOtherEye_clicked()
   // Update the comparison label with src / dst / diff using color-coded HTML.
   if(m_SBSEyeCompare)
   {
-    auto fmtVal = [](float v) { return QFormatStr("%1").arg((double)v, 9, 'f', 4); };
     float eps = (float)m_SBSDeltaEpsilon;
-    auto fmtDelta = [eps](float d) -> QString {
-      QString s = QFormatStr("%1").arg((double)d, 9, 'f', 4);
+    bool isUInt = (texTypeCast == CompType::UInt || texTypeCast == CompType::UScaled);
+    bool isSInt = (texTypeCast == CompType::SInt || texTypeCast == CompType::SScaled);
+    auto fmtVal = [isUInt, isSInt](const PixelValue &pv, int i) -> QString {
+      if(isUInt)
+        return QFormatStr("%1").arg(pv.uintValue[i]);
+      if(isSInt)
+        return QFormatStr("%1").arg(pv.intValue[i]);
+      return QFormatStr("%1").arg((double)pv.floatValue[i], 9, 'f', 4);
+    };
+    auto fmtDelta = [eps, isUInt, isSInt](const PixelValue &a, const PixelValue &b, int i) -> QString {
+      if(isUInt)
+      {
+        qlonglong d = (qlonglong)b.uintValue[i] - (qlonglong)a.uintValue[i];
+        const char *col = d == 0 ? "#000000" : (d > 0) ? "#007700" : "#cc0000";
+        return QFormatStr("<span style='color:%1'>%2</span>").arg(QLatin1String(col)).arg(d);
+      }
+      if(isSInt)
+      {
+        qlonglong d = (qlonglong)b.intValue[i] - (qlonglong)a.intValue[i];
+        const char *col = d == 0 ? "#000000" : (d > 0) ? "#007700" : "#cc0000";
+        return QFormatStr("<span style='color:%1'>%2</span>").arg(QLatin1String(col)).arg(d);
+      }
+      float d = b.floatValue[i] - a.floatValue[i];
       const char *col = (d > -eps && d < eps) ? "#000000" : (d > 0.0f) ? "#007700" : "#cc0000";
-      return QFormatStr("<span style='color:%1'>%2</span>").arg(QLatin1String(col)).arg(s);
+      return QFormatStr("<span style='color:%1'>%2</span>")
+          .arg(QLatin1String(col))
+          .arg(QFormatStr("%1").arg((double)d, 9, 'f', 4));
     };
 
     QString srcEye = eyeIndex == 0 ? lit("L") : lit("R");
     QString dstEye = eyeIndex == 0 ? lit("R") : lit("L");
     QString srcRow = QFormatStr("%1 %2 %3 %4")
-                         .arg(fmtVal(srcVal.floatValue[0]))
-                         .arg(fmtVal(srcVal.floatValue[1]))
-                         .arg(fmtVal(srcVal.floatValue[2]))
-                         .arg(fmtVal(srcVal.floatValue[3]));
+                         .arg(fmtVal(srcVal, 0))
+                         .arg(fmtVal(srcVal, 1))
+                         .arg(fmtVal(srcVal, 2))
+                         .arg(fmtVal(srcVal, 3));
     QString dstRow = QFormatStr("%1 %2 %3 %4")
-                         .arg(fmtVal(dstVal.floatValue[0]))
-                         .arg(fmtVal(dstVal.floatValue[1]))
-                         .arg(fmtVal(dstVal.floatValue[2]))
-                         .arg(fmtVal(dstVal.floatValue[3]));
+                         .arg(fmtVal(dstVal, 0))
+                         .arg(fmtVal(dstVal, 1))
+                         .arg(fmtVal(dstVal, 2))
+                         .arg(fmtVal(dstVal, 3));
     QString deltaRow = QFormatStr("%1 %2 %3 %4")
-                           .arg(fmtDelta(dstVal.floatValue[0] - srcVal.floatValue[0]))
-                           .arg(fmtDelta(dstVal.floatValue[1] - srcVal.floatValue[1]))
-                           .arg(fmtDelta(dstVal.floatValue[2] - srcVal.floatValue[2]))
-                           .arg(fmtDelta(dstVal.floatValue[3] - srcVal.floatValue[3]));
+                           .arg(fmtDelta(srcVal, dstVal, 0))
+                           .arg(fmtDelta(srcVal, dstVal, 1))
+                           .arg(fmtDelta(srcVal, dstVal, 2))
+                           .arg(fmtDelta(srcVal, dstVal, 3));
     QString text = QFormatStr("<pre><b>%1:</b> %2\n<b>%3:</b> %4\n<b>D:</b> %5\n</pre>")
                        .arg(srcEye)
                        .arg(srcRow)
@@ -4768,34 +4803,57 @@ void TextureViewer::updateSBSCompare()
       dstVal = r->PickPixel(texId, (uint32_t)result.x(), (uint32_t)result.y(), texSub, texTypeCast);
     }
 
-    GUIInvoke::call(this, [this, srcVal, dstVal, eyeIndex]() {
+    GUIInvoke::call(this, [this, srcVal, dstVal, eyeIndex, texTypeCast]() {
       if(!m_SBSEyeCompare)
         return;
-      auto fmtVal = [](float v) { return QFormatStr("%1").arg((double)v, 9, 'f', 4); };
       float eps = (float)m_SBSDeltaEpsilon;
-      auto fmtDelta = [eps](float d) -> QString {
-        QString s = QFormatStr("%1").arg((double)d, 9, 'f', 4);
+      bool isUInt = (texTypeCast == CompType::UInt || texTypeCast == CompType::UScaled);
+      bool isSInt = (texTypeCast == CompType::SInt || texTypeCast == CompType::SScaled);
+      auto fmtVal = [isUInt, isSInt](const PixelValue &pv, int i) -> QString {
+        if(isUInt)
+          return QFormatStr("%1").arg(pv.uintValue[i]);
+        if(isSInt)
+          return QFormatStr("%1").arg(pv.intValue[i]);
+        return QFormatStr("%1").arg((double)pv.floatValue[i], 9, 'f', 4);
+      };
+      auto fmtDelta = [eps, isUInt, isSInt](const PixelValue &a, const PixelValue &b,
+                                            int i) -> QString {
+        if(isUInt)
+        {
+          qlonglong d = (qlonglong)b.uintValue[i] - (qlonglong)a.uintValue[i];
+          const char *col = d == 0 ? "#000000" : (d > 0) ? "#007700" : "#cc0000";
+          return QFormatStr("<span style='color:%1'>%2</span>").arg(QLatin1String(col)).arg(d);
+        }
+        if(isSInt)
+        {
+          qlonglong d = (qlonglong)b.intValue[i] - (qlonglong)a.intValue[i];
+          const char *col = d == 0 ? "#000000" : (d > 0) ? "#007700" : "#cc0000";
+          return QFormatStr("<span style='color:%1'>%2</span>").arg(QLatin1String(col)).arg(d);
+        }
+        float d = b.floatValue[i] - a.floatValue[i];
         const char *col = (d > -eps && d < eps) ? "#000000" : (d > 0.0f) ? "#007700" : "#cc0000";
-        return QFormatStr("<span style='color:%1'>%2</span>").arg(QLatin1String(col)).arg(s);
+        return QFormatStr("<span style='color:%1'>%2</span>")
+            .arg(QLatin1String(col))
+            .arg(QFormatStr("%1").arg((double)d, 9, 'f', 4));
       };
 
       QString srcEye = eyeIndex == 0 ? lit("L") : lit("R");
       QString dstEye = eyeIndex == 0 ? lit("R") : lit("L");
       QString srcRow = QFormatStr("%1 %2 %3 %4")
-                           .arg(fmtVal(srcVal.floatValue[0]))
-                           .arg(fmtVal(srcVal.floatValue[1]))
-                           .arg(fmtVal(srcVal.floatValue[2]))
-                           .arg(fmtVal(srcVal.floatValue[3]));
+                           .arg(fmtVal(srcVal, 0))
+                           .arg(fmtVal(srcVal, 1))
+                           .arg(fmtVal(srcVal, 2))
+                           .arg(fmtVal(srcVal, 3));
       QString dstRow = QFormatStr("%1 %2 %3 %4")
-                           .arg(fmtVal(dstVal.floatValue[0]))
-                           .arg(fmtVal(dstVal.floatValue[1]))
-                           .arg(fmtVal(dstVal.floatValue[2]))
-                           .arg(fmtVal(dstVal.floatValue[3]));
+                           .arg(fmtVal(dstVal, 0))
+                           .arg(fmtVal(dstVal, 1))
+                           .arg(fmtVal(dstVal, 2))
+                           .arg(fmtVal(dstVal, 3));
       QString deltaRow = QFormatStr("%1 %2 %3 %4")
-                             .arg(fmtDelta(dstVal.floatValue[0] - srcVal.floatValue[0]))
-                             .arg(fmtDelta(dstVal.floatValue[1] - srcVal.floatValue[1]))
-                             .arg(fmtDelta(dstVal.floatValue[2] - srcVal.floatValue[2]))
-                             .arg(fmtDelta(dstVal.floatValue[3] - srcVal.floatValue[3]));
+                             .arg(fmtDelta(srcVal, dstVal, 0))
+                             .arg(fmtDelta(srcVal, dstVal, 1))
+                             .arg(fmtDelta(srcVal, dstVal, 2))
+                             .arg(fmtDelta(srcVal, dstVal, 3));
       QString text = QFormatStr("<pre><b>%1:</b> %2\n<b>%3:</b> %4\n<b>D:</b> %5\n</pre>")
                          .arg(srcEye)
                          .arg(srcRow)
