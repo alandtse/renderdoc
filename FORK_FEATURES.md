@@ -12,7 +12,6 @@ Include the branch or commit where the feature landed.
 ## Active Features
 
 ### VR SBS "Jump to Other Eye" Pixel Navigation
-**Status:** Active
 
 In VR captures that render both eyes side-by-side into a single texture (left eye in
 `x ∈ [0, W/2)`, right eye in `x ∈ [W/2, W)`), it is useful to jump directly from a
@@ -55,7 +54,6 @@ also extracted when present and used to correct IPD offset.
 ---
 
 ### Synchronized Pixel Shader Debugging
-**Status:** In development
 
 Steps multiple pixel shader debugger instances in lockstep, allowing divergences
 between shaders to be identified interactively. Useful for VR cross-eye divergence
