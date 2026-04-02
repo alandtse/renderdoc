@@ -318,6 +318,10 @@ private:
 
   void ShowGotoPopup();
 
+  // Formats the src/dst/delta HTML for the SBS eye-compare label.
+  QString formatSBSCompareLabel(const PixelValue &srcVal, const PixelValue &dstVal,
+                                uint32_t eyeIndex, CompType typeCast);
+
   bool ShouldFlipForGL();
   uint32_t MipCoordFromBase(int coord, const uint32_t dim);
   uint32_t BaseCoordFromMip(int coord, const uint32_t dim);

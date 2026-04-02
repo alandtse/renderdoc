@@ -43,4 +43,8 @@ public:
   // Returns true and sets otherMonoUVx/otherMonoUVy on success.
   static bool reproject(float monoUVx, float monoUVy, float depth, uint32_t eyeIndex,
                         const VRFrameBufferMatrices &mats, float &otherMonoUVx, float &otherMonoUVy);
+
+  // Returns true if VP * VPInv is approximately the 4x4 identity matrix (total absolute
+  // element error < 0.5). Used to validate structurally-detected matrix candidates.
+  static bool approxInverse(const float VP[16], const float VPInv[16]);
 };

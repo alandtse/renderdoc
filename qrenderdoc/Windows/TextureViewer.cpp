@@ -46,6 +46,7 @@
 #include <QTextEdit>
 #include "Code/QRDUtils.h"
 #include "Code/Resources.h"
+#include "Code/SBSDetector.h"
 #include "Dialogs/TextureSaveDialog.h"
 #include "Widgets/Extended/RDHeaderView.h"
 #include "Widgets/ResourcePreview.h"
@@ -4244,121 +4245,6 @@ void TextureViewer::on_pixelHistory_clicked()
   ShowPixelHistory(false);
 }
 
-// Describes the buffer locations of stereo VP matrices discovered generically from shader
-// reflection. All matrix offsets are relative to the start of the constant buffer data
-// (i.e. indices into the bytebuf returned by GetBufferData(..., cbufByteOffset, ...)).
-struct StereoMatrixConfig
-{
-  bool valid = false;
-  ResourceId cbufId;
-  uint64_t cbufByteOffset = 0;
-  uint32_t viewProjOffset[2] = {};
-  uint32_t viewProjInvOffset[2] = {};
-  bool hasCameraPosAdjust = false;
-  uint32_t cameraPosAdjustOffset[2] = {};
-  uint32_t minBytesNeeded = 0;
-  // Names of the shader variables that triggered each slot's detection.
-  QString viewProjVarName;
-  QString viewProjInvVarName;
-  QString cameraPosVarName;
-  // Human-readable description for the settings dialog.
-  QString description;
-};
-
-// Returns 1=ViewProj, 2=ViewProjInverse, 3=CameraPosAdjust, 0=unknown.
-static int classifyStereoVarName(const rdcstr &name)
-{
-  QString n = QString::fromUtf8(name.c_str(), (int)name.size()).toLower();
-  bool isViewProj = n.contains(lit("viewproj")) || n.contains(lit("view_proj"));
-  bool isInverse = n.contains(lit("inv"));
-  if(isViewProj && isInverse)
-    return 2;
-  if(isViewProj)
-    return 1;
-  if(n.contains(lit("camerapos")) || n.contains(lit("eyepos")) || n.contains(lit("eyeoffset")) ||
-     n.contains(lit("posadjust")) || n.contains(lit("eyeadjust")))
-    return 3;
-  return 0;
-}
-
-// Searches all pixel-shader constant blocks for stereo VP matrix arrays using
-// shader reflection. No engine-specific byte offsets — every offset is read from
-// ShaderConstant::byteOffset and ShaderConstantType::arrayByteStride.
-// Returns all valid candidates so the caller can pick the right one or iterate.
-static rdcarray<StereoMatrixConfig> detectAllStereoMatrices(ICaptureContext &ctx)
-{
-  rdcarray<StereoMatrixConfig> results;
-  const ShaderReflection *refl = ctx.CurPipelineState().GetShaderReflection(ShaderStage::Pixel);
-  if(!refl)
-    return results;
-
-  for(int bi = 0; bi < (int)refl->constantBlocks.size(); bi++)
-  {
-    const ConstantBlock &block = refl->constantBlocks[bi];
-    bool foundVP = false, foundVPInv = false;
-    StereoMatrixConfig candidate;
-
-    for(int vi = 0; vi < (int)block.variables.size(); vi++)
-    {
-      const ShaderConstant &var = block.variables[vi];
-      const ShaderConstantType &t = var.type;
-      int cls = classifyStereoVarName(var.name);
-
-      // float4x4[>=2] — stereo ViewProj or ViewProjInverse array.
-      if(t.elements >= 2 && t.rows == 4 && t.columns == 4 && t.baseType == VarType::Float)
-      {
-        uint32_t stride = (t.arrayByteStride > 0) ? t.arrayByteStride : 64u;
-        if(cls == 1 && !foundVP)
-        {
-          candidate.viewProjOffset[0] = var.byteOffset;
-          candidate.viewProjOffset[1] = var.byteOffset + stride;
-          candidate.viewProjVarName = QString::fromUtf8(var.name.c_str(), (int)var.name.size());
-          foundVP = true;
-        }
-        else if(cls == 2 && !foundVPInv)
-        {
-          candidate.viewProjInvOffset[0] = var.byteOffset;
-          candidate.viewProjInvOffset[1] = var.byteOffset + stride;
-          candidate.viewProjInvVarName = QString::fromUtf8(var.name.c_str(), (int)var.name.size());
-          foundVPInv = true;
-        }
-      }
-      // float4[>=2] — per-eye world-space camera position offset (optional).
-      else if(t.elements >= 2 && t.rows == 1 && t.columns == 4 && t.baseType == VarType::Float &&
-              cls == 3)
-      {
-        uint32_t stride = (t.arrayByteStride > 0) ? t.arrayByteStride : 16u;
-        candidate.cameraPosAdjustOffset[0] = var.byteOffset;
-        candidate.cameraPosAdjustOffset[1] = var.byteOffset + stride;
-        candidate.cameraPosVarName = QString::fromUtf8(var.name.c_str(), (int)var.name.size());
-        candidate.hasCameraPosAdjust = true;
-      }
-    }
-
-    if(foundVP && foundVPInv)
-    {
-      UsedDescriptor cbufDesc = ctx.CurPipelineState().GetConstantBlock(ShaderStage::Pixel, bi, 0);
-      if(cbufDesc.descriptor.resource != ResourceId())
-      {
-        candidate.cbufId = cbufDesc.descriptor.resource;
-        candidate.cbufByteOffset = cbufDesc.descriptor.byteOffset;
-        uint32_t maxEnd = qMax(candidate.viewProjOffset[1], candidate.viewProjInvOffset[1]) + 64u;
-        if(candidate.hasCameraPosAdjust)
-          maxEnd = qMax(maxEnd, candidate.cameraPosAdjustOffset[1] + 16u);
-        candidate.minBytesNeeded = maxEnd;
-        candidate.valid = true;
-        candidate.description =
-            QFormatStr("b%1 (%2)%3")
-                .arg(block.fixedBindNumber)
-                .arg(QString::fromUtf8(block.name.c_str(), (int)block.name.size()))
-                .arg(candidate.hasCameraPosAdjust ? lit(" + CameraPosAdjust") : QString());
-        results.push_back(candidate);
-      }
-    }
-  }
-  return results;
-}
-
 void TextureViewer::UI_UpdatePickedCrosshair()
 {
   if(!m_PickedCrosshair[0])
@@ -4447,6 +4333,65 @@ void TextureViewer::on_sbsToggle_clicked(bool checked)
   if(!checked && m_SBSEyeCompare)
     m_SBSEyeCompare->hide();
   UI_UpdateStatusText();
+}
+
+QString TextureViewer::formatSBSCompareLabel(const PixelValue &srcVal, const PixelValue &dstVal,
+                                             uint32_t eyeIndex, CompType typeCast)
+{
+  float eps = (float)m_SBSDeltaEpsilon;
+  bool isUInt = (typeCast == CompType::UInt || typeCast == CompType::UScaled);
+  bool isSInt = (typeCast == CompType::SInt || typeCast == CompType::SScaled);
+
+  auto fmtVal = [isUInt, isSInt](const PixelValue &pv, int i) -> QString {
+    if(isUInt)
+      return QFormatStr("%1").arg(pv.uintValue[i]);
+    if(isSInt)
+      return QFormatStr("%1").arg(pv.intValue[i]);
+    return QFormatStr("%1").arg((double)pv.floatValue[i], 9, 'f', 4);
+  };
+  auto fmtDelta = [eps, isUInt, isSInt](const PixelValue &a, const PixelValue &b, int i) -> QString {
+    if(isUInt)
+    {
+      qlonglong d = (qlonglong)b.uintValue[i] - (qlonglong)a.uintValue[i];
+      const char *col = d == 0 ? "#000000" : (d > 0) ? "#007700" : "#cc0000";
+      return QFormatStr("<span style='color:%1'>%2</span>").arg(QLatin1String(col)).arg(d);
+    }
+    if(isSInt)
+    {
+      qlonglong d = (qlonglong)b.intValue[i] - (qlonglong)a.intValue[i];
+      const char *col = d == 0 ? "#000000" : (d > 0) ? "#007700" : "#cc0000";
+      return QFormatStr("<span style='color:%1'>%2</span>").arg(QLatin1String(col)).arg(d);
+    }
+    float d = b.floatValue[i] - a.floatValue[i];
+    const char *col = (d > -eps && d < eps) ? "#000000" : (d > 0.0f) ? "#007700" : "#cc0000";
+    return QFormatStr("<span style='color:%1'>%2</span>")
+        .arg(QLatin1String(col))
+        .arg(QFormatStr("%1").arg((double)d, 9, 'f', 4));
+  };
+
+  QString srcEye = eyeIndex == 0 ? lit("L") : lit("R");
+  QString dstEye = eyeIndex == 0 ? lit("R") : lit("L");
+  QString srcRow = QFormatStr("%1 %2 %3 %4")
+                       .arg(fmtVal(srcVal, 0))
+                       .arg(fmtVal(srcVal, 1))
+                       .arg(fmtVal(srcVal, 2))
+                       .arg(fmtVal(srcVal, 3));
+  QString dstRow = QFormatStr("%1 %2 %3 %4")
+                       .arg(fmtVal(dstVal, 0))
+                       .arg(fmtVal(dstVal, 1))
+                       .arg(fmtVal(dstVal, 2))
+                       .arg(fmtVal(dstVal, 3));
+  QString deltaRow = QFormatStr("%1 %2 %3 %4")
+                         .arg(fmtDelta(srcVal, dstVal, 0))
+                         .arg(fmtDelta(srcVal, dstVal, 1))
+                         .arg(fmtDelta(srcVal, dstVal, 2))
+                         .arg(fmtDelta(srcVal, dstVal, 3));
+  return QFormatStr("<pre><b>%1:</b> %2\n<b>%3:</b> %4\n<b>D:</b> %5\n</pre>")
+      .arg(srcEye)
+      .arg(srcRow)
+      .arg(dstEye)
+      .arg(dstRow)
+      .arg(deltaRow);
 }
 
 void TextureViewer::on_jumpOtherEye_clicked()
@@ -4592,6 +4537,11 @@ void TextureViewer::on_jumpOtherEye_clicked()
             memcpy(mats.cameraPosAdjust[0], cbufData.data() + matCfg.cameraPosAdjustOffset[0], 16);
             memcpy(mats.cameraPosAdjust[1], cbufData.data() + matCfg.cameraPosAdjustOffset[1], 16);
           }
+          // Structural candidates (detected without matching variable names) must have
+          // VP * VPInv ≈ identity confirmed before we trust the reprojection.
+          if(matCfg.needsVerification &&
+             !SBSMapper::approxInverse(mats.viewProj[0], mats.viewProjInverse[0]))
+            continue;
           QPoint r2 = tryReproject(mats);
           if(r2.x() >= 0)
             return r2;
@@ -4616,61 +4566,8 @@ void TextureViewer::on_jumpOtherEye_clicked()
   // Update the comparison label with src / dst / diff using color-coded HTML.
   if(m_SBSEyeCompare)
   {
-    float eps = (float)m_SBSDeltaEpsilon;
-    bool isUInt = (texTypeCast == CompType::UInt || texTypeCast == CompType::UScaled);
-    bool isSInt = (texTypeCast == CompType::SInt || texTypeCast == CompType::SScaled);
-    auto fmtVal = [isUInt, isSInt](const PixelValue &pv, int i) -> QString {
-      if(isUInt)
-        return QFormatStr("%1").arg(pv.uintValue[i]);
-      if(isSInt)
-        return QFormatStr("%1").arg(pv.intValue[i]);
-      return QFormatStr("%1").arg((double)pv.floatValue[i], 9, 'f', 4);
-    };
-    auto fmtDelta = [eps, isUInt, isSInt](const PixelValue &a, const PixelValue &b, int i) -> QString {
-      if(isUInt)
-      {
-        qlonglong d = (qlonglong)b.uintValue[i] - (qlonglong)a.uintValue[i];
-        const char *col = d == 0 ? "#000000" : (d > 0) ? "#007700" : "#cc0000";
-        return QFormatStr("<span style='color:%1'>%2</span>").arg(QLatin1String(col)).arg(d);
-      }
-      if(isSInt)
-      {
-        qlonglong d = (qlonglong)b.intValue[i] - (qlonglong)a.intValue[i];
-        const char *col = d == 0 ? "#000000" : (d > 0) ? "#007700" : "#cc0000";
-        return QFormatStr("<span style='color:%1'>%2</span>").arg(QLatin1String(col)).arg(d);
-      }
-      float d = b.floatValue[i] - a.floatValue[i];
-      const char *col = (d > -eps && d < eps) ? "#000000" : (d > 0.0f) ? "#007700" : "#cc0000";
-      return QFormatStr("<span style='color:%1'>%2</span>")
-          .arg(QLatin1String(col))
-          .arg(QFormatStr("%1").arg((double)d, 9, 'f', 4));
-    };
-
-    QString srcEye = eyeIndex == 0 ? lit("L") : lit("R");
-    QString dstEye = eyeIndex == 0 ? lit("R") : lit("L");
-    QString srcRow = QFormatStr("%1 %2 %3 %4")
-                         .arg(fmtVal(srcVal, 0))
-                         .arg(fmtVal(srcVal, 1))
-                         .arg(fmtVal(srcVal, 2))
-                         .arg(fmtVal(srcVal, 3));
-    QString dstRow = QFormatStr("%1 %2 %3 %4")
-                         .arg(fmtVal(dstVal, 0))
-                         .arg(fmtVal(dstVal, 1))
-                         .arg(fmtVal(dstVal, 2))
-                         .arg(fmtVal(dstVal, 3));
-    QString deltaRow = QFormatStr("%1 %2 %3 %4")
-                           .arg(fmtDelta(srcVal, dstVal, 0))
-                           .arg(fmtDelta(srcVal, dstVal, 1))
-                           .arg(fmtDelta(srcVal, dstVal, 2))
-                           .arg(fmtDelta(srcVal, dstVal, 3));
-    QString text = QFormatStr("<pre><b>%1:</b> %2\n<b>%3:</b> %4\n<b>D:</b> %5\n</pre>")
-                       .arg(srcEye)
-                       .arg(srcRow)
-                       .arg(dstEye)
-                       .arg(dstRow)
-                       .arg(deltaRow);
     m_SBSEyeCompare->setTextFormat(Qt::RichText);
-    m_SBSEyeCompare->setText(text);
+    m_SBSEyeCompare->setText(formatSBSCompareLabel(srcVal, dstVal, eyeIndex, texTypeCast));
     m_SBSEyeCompare->show();
   }
 
@@ -4777,6 +4674,9 @@ void TextureViewer::updateSBSCompare()
             memcpy(mats.cameraPosAdjust[0], cbufData.data() + matCfg.cameraPosAdjustOffset[0], 16);
             memcpy(mats.cameraPosAdjust[1], cbufData.data() + matCfg.cameraPosAdjustOffset[1], 16);
           }
+          if(matCfg.needsVerification &&
+             !SBSMapper::approxInverse(mats.viewProj[0], mats.viewProjInverse[0]))
+            continue;
           float otherMonoUVx = 0.0f, otherMonoUVy = 0.0f;
           if(SBSMapper::reproject(monoUVx, monoUVy, depth, eyeIndex, mats, otherMonoUVx, otherMonoUVy))
           {
@@ -4806,62 +4706,8 @@ void TextureViewer::updateSBSCompare()
     GUIInvoke::call(this, [this, srcVal, dstVal, eyeIndex, texTypeCast]() {
       if(!m_SBSEyeCompare)
         return;
-      float eps = (float)m_SBSDeltaEpsilon;
-      bool isUInt = (texTypeCast == CompType::UInt || texTypeCast == CompType::UScaled);
-      bool isSInt = (texTypeCast == CompType::SInt || texTypeCast == CompType::SScaled);
-      auto fmtVal = [isUInt, isSInt](const PixelValue &pv, int i) -> QString {
-        if(isUInt)
-          return QFormatStr("%1").arg(pv.uintValue[i]);
-        if(isSInt)
-          return QFormatStr("%1").arg(pv.intValue[i]);
-        return QFormatStr("%1").arg((double)pv.floatValue[i], 9, 'f', 4);
-      };
-      auto fmtDelta = [eps, isUInt, isSInt](const PixelValue &a, const PixelValue &b,
-                                            int i) -> QString {
-        if(isUInt)
-        {
-          qlonglong d = (qlonglong)b.uintValue[i] - (qlonglong)a.uintValue[i];
-          const char *col = d == 0 ? "#000000" : (d > 0) ? "#007700" : "#cc0000";
-          return QFormatStr("<span style='color:%1'>%2</span>").arg(QLatin1String(col)).arg(d);
-        }
-        if(isSInt)
-        {
-          qlonglong d = (qlonglong)b.intValue[i] - (qlonglong)a.intValue[i];
-          const char *col = d == 0 ? "#000000" : (d > 0) ? "#007700" : "#cc0000";
-          return QFormatStr("<span style='color:%1'>%2</span>").arg(QLatin1String(col)).arg(d);
-        }
-        float d = b.floatValue[i] - a.floatValue[i];
-        const char *col = (d > -eps && d < eps) ? "#000000" : (d > 0.0f) ? "#007700" : "#cc0000";
-        return QFormatStr("<span style='color:%1'>%2</span>")
-            .arg(QLatin1String(col))
-            .arg(QFormatStr("%1").arg((double)d, 9, 'f', 4));
-      };
-
-      QString srcEye = eyeIndex == 0 ? lit("L") : lit("R");
-      QString dstEye = eyeIndex == 0 ? lit("R") : lit("L");
-      QString srcRow = QFormatStr("%1 %2 %3 %4")
-                           .arg(fmtVal(srcVal, 0))
-                           .arg(fmtVal(srcVal, 1))
-                           .arg(fmtVal(srcVal, 2))
-                           .arg(fmtVal(srcVal, 3));
-      QString dstRow = QFormatStr("%1 %2 %3 %4")
-                           .arg(fmtVal(dstVal, 0))
-                           .arg(fmtVal(dstVal, 1))
-                           .arg(fmtVal(dstVal, 2))
-                           .arg(fmtVal(dstVal, 3));
-      QString deltaRow = QFormatStr("%1 %2 %3 %4")
-                             .arg(fmtDelta(srcVal, dstVal, 0))
-                             .arg(fmtDelta(srcVal, dstVal, 1))
-                             .arg(fmtDelta(srcVal, dstVal, 2))
-                             .arg(fmtDelta(srcVal, dstVal, 3));
-      QString text = QFormatStr("<pre><b>%1:</b> %2\n<b>%3:</b> %4\n<b>D:</b> %5\n</pre>")
-                         .arg(srcEye)
-                         .arg(srcRow)
-                         .arg(dstEye)
-                         .arg(dstRow)
-                         .arg(deltaRow);
       m_SBSEyeCompare->setTextFormat(Qt::RichText);
-      m_SBSEyeCompare->setText(text);
+      m_SBSEyeCompare->setText(formatSBSCompareLabel(srcVal, dstVal, eyeIndex, texTypeCast));
       m_SBSEyeCompare->show();
     });
   });

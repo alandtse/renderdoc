@@ -42,6 +42,22 @@ static void mulMat4Vec4(const float M[16], float vx, float vy, float vz, float v
 // Input:  per-eye UV (x,y) in [0,1], NDC depth in [0,1], source eyeIndex.
 // Output: otherMonoUVx/Y in [0,1] per-eye UV for the other eye.
 // Returns false if the reprojection is degenerate or the result is outside [0,1].
+bool SBSMapper::approxInverse(const float VP[16], const float VPInv[16])
+{
+  float prod[16] = {};
+  for(int r = 0; r < 4; r++)
+    for(int c = 0; c < 4; c++)
+      for(int k = 0; k < 4; k++)
+        prod[r * 4 + c] += VP[r * 4 + k] * VPInv[k * 4 + c];
+
+  float err = 0.0f;
+  for(int i = 0; i < 4; i++)
+    for(int j = 0; j < 4; j++)
+      err += qAbs(prod[i * 4 + j] - (i == j ? 1.0f : 0.0f));
+
+  return err < 0.5f;
+}
+
 bool SBSMapper::reproject(float monoUVx, float monoUVy, float depth, uint32_t eyeIndex,
                           const VRFrameBufferMatrices &mats, float &otherMonoUVx, float &otherMonoUVy)
 {
