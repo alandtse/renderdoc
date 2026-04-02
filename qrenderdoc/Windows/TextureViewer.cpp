@@ -4709,9 +4709,9 @@ void TextureViewer::updateSBSCompare()
   // Fire-and-forget: do all GPU work on the replay thread, then post UI update via GUIInvoke.
   m_Ctx.Replay().AsyncInvoke(lit("SBSCompare"), [this, monoUVx, monoUVy, eyeIndex, logicalY,
                                                  otherX_fallback, matCandidates, sbsCbufferIndex,
-                                                 depthId, depthX, depthY, dynResHalfW, dynResScaleY,
-                                                 renderedW, renderedH, texId, texSub, texTypeCast,
-                                                 srcPickX, srcPickY](IReplayController *r) {
+                                                 depthId, depthX, depthY, dynResHalfW, renderedW,
+                                                 renderedH, texId, texSub, texTypeCast, srcPickX,
+                                                 srcPickY](IReplayController *r) {
     QPoint result(-1, -1);
 
     if(!matCandidates.empty() && depthId != ResourceId())
@@ -4822,27 +4822,22 @@ void TextureViewer::on_sbsSettings_clicked()
   if(previewIdx < (int)candidates.size())
   {
     const StereoMatrixConfig &cfg = candidates[previewIdx];
-    bool readDone = false;
-    m_Ctx.Replay().AsyncInvoke(
-        lit("SBSPreview"), [&prevVP0, &prevVP1, &prevVPInv0, &prevVPInv1, &prevCam0, &prevCam1,
-                            &readDone, cfg](IReplayController *r) {
-          bytebuf data = r->GetBufferData(cfg.cbufId, cfg.cbufByteOffset, cfg.minBytesNeeded);
-          if((int)data.size() >= (int)cfg.minBytesNeeded)
-          {
-            memcpy(prevVP0, data.data() + cfg.viewProjOffset[0], 16);
-            memcpy(prevVP1, data.data() + cfg.viewProjOffset[1], 16);
-            memcpy(prevVPInv0, data.data() + cfg.viewProjInvOffset[0], 16);
-            memcpy(prevVPInv1, data.data() + cfg.viewProjInvOffset[1], 16);
-            if(cfg.hasCameraPosAdjust)
-            {
-              memcpy(prevCam0, data.data() + cfg.cameraPosAdjustOffset[0], 16);
-              memcpy(prevCam1, data.data() + cfg.cameraPosAdjustOffset[1], 16);
-            }
-          }
-          readDone = true;
-        });
-    for(int i = 0; !readDone && i < 100; i++)
-      QThread::msleep(5);
+    m_Ctx.Replay().BlockInvoke([&prevVP0, &prevVP1, &prevVPInv0, &prevVPInv1, &prevCam0, &prevCam1,
+                                cfg](IReplayController *r) {
+      bytebuf data = r->GetBufferData(cfg.cbufId, cfg.cbufByteOffset, cfg.minBytesNeeded);
+      if((int)data.size() >= (int)cfg.minBytesNeeded)
+      {
+        memcpy(prevVP0, data.data() + cfg.viewProjOffset[0], 16);
+        memcpy(prevVP1, data.data() + cfg.viewProjOffset[1], 16);
+        memcpy(prevVPInv0, data.data() + cfg.viewProjInvOffset[0], 16);
+        memcpy(prevVPInv1, data.data() + cfg.viewProjInvOffset[1], 16);
+        if(cfg.hasCameraPosAdjust)
+        {
+          memcpy(prevCam0, data.data() + cfg.cameraPosAdjustOffset[0], 16);
+          memcpy(prevCam1, data.data() + cfg.cameraPosAdjustOffset[1], 16);
+        }
+      }
+    });
   }
 
   // Helper: format a float4 row as "X.XXX  X.XXX  X.XXX  X.XXX".
@@ -5026,10 +5021,8 @@ void TextureViewer::on_sbsSettings_clicked()
   {
     // Read full matrices for pre-fill (we already have row-0 in prevVP*, but need full 4x4).
     const StereoMatrixConfig &cfg = candidates[previewIdx];
-    bool fullReadDone = false;
     float tmpVP0[16] = {}, tmpVP1[16] = {}, tmpVPInv0[16] = {}, tmpVPInv1[16] = {};
-    m_Ctx.Replay().AsyncInvoke(lit("SBSFullRead"), [&tmpVP0, &tmpVP1, &tmpVPInv0, &tmpVPInv1,
-                                                    &fullReadDone, cfg](IReplayController *r) {
+    m_Ctx.Replay().BlockInvoke([&tmpVP0, &tmpVP1, &tmpVPInv0, &tmpVPInv1, cfg](IReplayController *r) {
       bytebuf data = r->GetBufferData(cfg.cbufId, cfg.cbufByteOffset, cfg.minBytesNeeded);
       if((int)data.size() >= (int)cfg.minBytesNeeded)
       {
@@ -5038,10 +5031,7 @@ void TextureViewer::on_sbsSettings_clicked()
         memcpy(tmpVPInv0, data.data() + cfg.viewProjInvOffset[0], 64);
         memcpy(tmpVPInv1, data.data() + cfg.viewProjInvOffset[1], 64);
       }
-      fullReadDone = true;
     });
-    for(int i = 0; !fullReadDone && i < 100; i++)
-      QThread::msleep(5);
     memcpy(fillVP0, tmpVP0, 64);
     memcpy(fillVP1, tmpVP1, 64);
     memcpy(fillVPInv0, tmpVPInv0, 64);
@@ -5105,13 +5095,25 @@ void TextureViewer::on_sbsSettings_clicked()
     m_SBSDeltaEpsilon = epsBox->value();
 
     // Parse and store manual matrices if use-manual is checked.
-    m_SBSUseManualMatrices = useManualCheck->isChecked();
-    if(m_SBSUseManualMatrices)
+    // Validate all four before committing so a parse failure never enables the flag with stale data.
+    if(useManualCheck->isChecked())
     {
-      textToMatrix(editVP0->toPlainText(), m_SBSManualVP[0]);
-      textToMatrix(editVP1->toPlainText(), m_SBSManualVP[1]);
-      textToMatrix(editVPInv0->toPlainText(), m_SBSManualVPInv[0]);
-      textToMatrix(editVPInv1->toPlainText(), m_SBSManualVPInv[1]);
+      float tmpVP0[16] = {}, tmpVP1[16] = {}, tmpVPInv0[16] = {}, tmpVPInv1[16] = {};
+      if(textToMatrix(editVP0->toPlainText(), tmpVP0) &&
+         textToMatrix(editVP1->toPlainText(), tmpVP1) &&
+         textToMatrix(editVPInv0->toPlainText(), tmpVPInv0) &&
+         textToMatrix(editVPInv1->toPlainText(), tmpVPInv1))
+      {
+        m_SBSUseManualMatrices = true;
+        memcpy(m_SBSManualVP[0], tmpVP0, 64);
+        memcpy(m_SBSManualVP[1], tmpVP1, 64);
+        memcpy(m_SBSManualVPInv[0], tmpVPInv0, 64);
+        memcpy(m_SBSManualVPInv[1], tmpVPInv1, 64);
+      }
+    }
+    else
+    {
+      m_SBSUseManualMatrices = false;
     }
   }
 }
