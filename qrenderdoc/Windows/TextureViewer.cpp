@@ -4662,42 +4662,52 @@ void TextureViewer::updateSBSCompare()
       float depth = depthVal.floatValue[0];
       if(depth > 0.0f && depth < 1.0f)
       {
-        int candidateStart = (sbsCbufferIndex >= 0 && sbsCbufferIndex < (int)matCandidates.size())
-                                 ? sbsCbufferIndex
-                                 : 0;
-        int candidateEnd = (sbsCbufferIndex >= 0) ? candidateStart + 1 : (int)matCandidates.size();
-        for(int ci = candidateStart; ci < candidateEnd; ci++)
-        {
-          const StereoMatrixConfig &matCfg = matCandidates[ci];
-          bytebuf cbufData =
-              r->GetBufferData(matCfg.cbufId, matCfg.cbufByteOffset, matCfg.minBytesNeeded);
-          if((int)cbufData.size() < (int)matCfg.minBytesNeeded)
-            continue;
-          VRFrameBufferMatrices mats = {};
-          memcpy(mats.viewProj[0], cbufData.data() + matCfg.viewProjOffset[0], 64);
-          memcpy(mats.viewProj[1], cbufData.data() + matCfg.viewProjOffset[1], 64);
-          memcpy(mats.viewProjInverse[0], cbufData.data() + matCfg.viewProjInvOffset[0], 64);
-          memcpy(mats.viewProjInverse[1], cbufData.data() + matCfg.viewProjInvOffset[1], 64);
-          if(matCfg.hasCameraPosAdjust)
-          {
-            mats.hasCameraPosAdjust = true;
-            memcpy(mats.cameraPosAdjust[0], cbufData.data() + matCfg.cameraPosAdjustOffset[0], 16);
-            memcpy(mats.cameraPosAdjust[1], cbufData.data() + matCfg.cameraPosAdjustOffset[1], 16);
-          }
-          if(matCfg.needsVerification &&
-             !SBSMapper::approxInverse(mats.viewProj[0], mats.viewProjInverse[0]))
-            continue;
+        auto tryReproject = [&](const VRFrameBufferMatrices &mats) {
           float otherMonoUVx = 0.0f, otherMonoUVy = 0.0f;
-          if(SBSMapper::reproject(monoUVx, monoUVy, depth, eyeIndex, mats, otherMonoUVx, otherMonoUVy))
+          if(!SBSMapper::reproject(monoUVx, monoUVy, depth, eyeIndex, mats, otherMonoUVx,
+                                   otherMonoUVy))
+            return;
+          uint32_t otherEye = 1u - eyeIndex;
+          int otherX = qRound((otherMonoUVx + (float)otherEye) * dynResHalfW);
+          int otherY = qRound(otherMonoUVy * (float)(renderedH));
+          if(otherX >= 0 && otherX < renderedW && otherY >= 0 && otherY < renderedH)
+            result = QPoint(otherX, otherY);
+        };
+
+        if(useManualMats)
+        {
+          tryReproject(manualMats);
+        }
+        else
+        {
+          int candidateStart = (sbsCbufferIndex >= 0 && sbsCbufferIndex < (int)matCandidates.size())
+                                   ? sbsCbufferIndex
+                                   : 0;
+          int candidateEnd = (sbsCbufferIndex >= 0) ? candidateStart + 1 : (int)matCandidates.size();
+          for(int ci = candidateStart; ci < candidateEnd; ci++)
           {
-            uint32_t otherEye = 1u - eyeIndex;
-            int otherX = qRound((otherMonoUVx + (float)otherEye) * dynResHalfW);
-            int otherY = qRound(otherMonoUVy * (float)(renderedH));
-            if(otherX >= 0 && otherX < renderedW && otherY >= 0 && otherY < renderedH)
+            const StereoMatrixConfig &matCfg = matCandidates[ci];
+            bytebuf cbufData =
+                r->GetBufferData(matCfg.cbufId, matCfg.cbufByteOffset, matCfg.minBytesNeeded);
+            if((int)cbufData.size() < (int)matCfg.minBytesNeeded)
+              continue;
+            VRFrameBufferMatrices mats = {};
+            memcpy(mats.viewProj[0], cbufData.data() + matCfg.viewProjOffset[0], 64);
+            memcpy(mats.viewProj[1], cbufData.data() + matCfg.viewProjOffset[1], 64);
+            memcpy(mats.viewProjInverse[0], cbufData.data() + matCfg.viewProjInvOffset[0], 64);
+            memcpy(mats.viewProjInverse[1], cbufData.data() + matCfg.viewProjInvOffset[1], 64);
+            if(matCfg.hasCameraPosAdjust)
             {
-              result = QPoint(otherX, otherY);
-              break;
+              mats.hasCameraPosAdjust = true;
+              memcpy(mats.cameraPosAdjust[0], cbufData.data() + matCfg.cameraPosAdjustOffset[0], 16);
+              memcpy(mats.cameraPosAdjust[1], cbufData.data() + matCfg.cameraPosAdjustOffset[1], 16);
             }
+            if(matCfg.needsVerification &&
+               !SBSMapper::approxInverse(mats.viewProj[0], mats.viewProjInverse[0]))
+              continue;
+            tryReproject(mats);
+            if(result.x() >= 0)
+              break;
           }
         }
       }
