@@ -23,8 +23,7 @@ struct VRFrameBufferMatrices
 // Simple mirror: pixel at x maps to x ± texWidth/2. No matrix data required.
 //
 // Matrix reprojection: world-space reprojection via per-eye ViewProj /
-//   ViewProjInverse matrices, detected generically from the current draw's shader
-//   reflection. Ported from ConvertMonoUVToOtherEye in skyrim-community-shaders VR.hlsli.
+//   ViewProjInverse matrices detected from the current draw's shader reflection.
 class SBSMapper
 {
 public:

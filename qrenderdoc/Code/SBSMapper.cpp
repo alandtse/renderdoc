@@ -36,12 +36,12 @@ static void mulMat4Vec4(const float M[16], float vx, float vy, float vz, float v
   out[3] = M[12] * vx + M[13] * vy + M[14] * vz + M[15] * vw;
 }
 
-// Ported from ConvertMonoUVToOtherEye in skyrim-community-shaders Common/VR.hlsli
-// (dynamicres=false path). Works for any engine supplying the same matrix semantics.
+// World-space reprojection: unproject the source pixel to world space using
+// ViewProjInverse[eyeIndex], then project into the other eye via ViewProj[otherEye].
 //
 // Input:  per-eye UV (x,y) in [0,1], NDC depth in [0,1], source eyeIndex.
 // Output: otherMonoUVx/Y in [0,1] per-eye UV for the other eye.
-// Returns false if the reprojection is degenerate or out of [0,1].
+// Returns false if the reprojection is degenerate or the result is outside [0,1].
 bool SBSMapper::reproject(float monoUVx, float monoUVy, float depth, uint32_t eyeIndex,
                           const VRFrameBufferMatrices &mats, float &otherMonoUVx, float &otherMonoUVy)
 {

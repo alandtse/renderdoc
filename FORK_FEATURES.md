@@ -12,7 +12,6 @@ Include the branch or commit where the feature landed.
 ## Active Features
 
 ### VR SBS "Jump to Other Eye" Pixel Navigation
-**Branch:** `vr_sbs_eye_mapping`
 **Status:** Active
 
 In VR captures that render both eyes side-by-side into a single texture (left eye in
@@ -31,10 +30,11 @@ picked pixel in one eye to the corresponding location in the other eye.
 **How it works:**
 When the pixel shader at the current EID has a constant buffer containing `float4x4[>=2]`
 arrays named like `ViewProj` and `ViewProjInverse` (detected via shader reflection),
-the jump uses world-space reprojection for a geometrically accurate result. The algorithm
-is ported from `ConvertMonoUVToOtherEye` in `Common/VR.hlsli`. Falls back to a simple
-horizontal mirror when no stereo matrices are found, the depth buffer is unavailable,
-or the reprojected UV lands outside [0,1].
+the jump uses world-space reprojection for a geometrically accurate result:
+unproject the source pixel to world space using the source eye's ViewProjInverse,
+then reproject into the other eye via the other eye's ViewProj.
+Falls back to a simple horizontal mirror when no stereo matrices are found,
+the depth buffer is unavailable, or the reprojected UV lands outside [0,1].
 
 Detection uses `ShaderConstant::byteOffset` and `ShaderConstantType::arrayByteStride`
 from `ShaderReflection` — no engine-specific hardcoded offsets. A `float4[>=2]` array
@@ -55,7 +55,6 @@ also extracted when present and used to correct IPD offset.
 ---
 
 ### Synchronized Pixel Shader Debugging
-**Branch:** `synced_debuggers`
 **Status:** In development
 
 Steps multiple pixel shader debugger instances in lockstep, allowing divergences
