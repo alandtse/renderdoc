@@ -114,7 +114,9 @@ rdcarray<StereoMatrixConfig> detectAllStereoMatrices(ICaptureContext &ctx)
 
     // Helper: fill the cbuffer location fields and push a candidate.
     auto pushCandidate = [&](StereoMatrixConfig &cfg) {
-      UsedDescriptor cbufDesc = ctx.CurPipelineState().GetConstantBlock(ShaderStage::Pixel, bi, 0);
+      // Use fixedBindNumber (shader binding slot), not bi (reflection array index).
+      UsedDescriptor cbufDesc =
+          ctx.CurPipelineState().GetConstantBlock(ShaderStage::Pixel, block.fixedBindNumber, 0);
       if(cbufDesc.descriptor.resource == ResourceId())
         return;
       cfg.cbufId = cbufDesc.descriptor.resource;

@@ -4620,11 +4620,19 @@ void TextureViewer::updateSBSCompare()
   float monoUVx = ((float)srcX - (float)eyeIndex * dynResHalfW) / dynResHalfW;
   float monoUVy = (float)logicalY / ((float)texH * dynResScaleY);
 
-  rdcarray<StereoMatrixConfig> matCandidates;
-  if(m_SBSMatrixReprojEnabled)
+  bool useManualMats = m_SBSUseManualMatrices;
+  VRFrameBufferMatrices manualMats = {};
+  if(useManualMats)
   {
-    matCandidates = detectAllStereoMatrices(m_Ctx);
+    memcpy(manualMats.viewProj[0], m_SBSManualVP[0], 64);
+    memcpy(manualMats.viewProj[1], m_SBSManualVP[1], 64);
+    memcpy(manualMats.viewProjInverse[0], m_SBSManualVPInv[0], 64);
+    memcpy(manualMats.viewProjInverse[1], m_SBSManualVPInv[1], 64);
   }
+
+  rdcarray<StereoMatrixConfig> matCandidates;
+  if(!useManualMats && m_SBSMatrixReprojEnabled)
+    matCandidates = detectAllStereoMatrices(m_Ctx);
   int sbsCbufferIndex = m_SBSCbufferIndex;
 
   Descriptor depthDesc = Following::GetDepthTarget(m_Ctx);
@@ -4643,10 +4651,12 @@ void TextureViewer::updateSBSCompare()
                                                  otherX_fallback, matCandidates, sbsCbufferIndex,
                                                  depthId, depthX, depthY, dynResHalfW, renderedW,
                                                  renderedH, texId, texSub, texTypeCast, srcPickX,
-                                                 srcPickY](IReplayController *r) {
+                                                 srcPickY, useManualMats,
+                                                 manualMats](IReplayController *r) {
     QPoint result(-1, -1);
 
-    if(!matCandidates.empty() && depthId != ResourceId())
+    bool hasReprojData = useManualMats || (!matCandidates.empty() && depthId != ResourceId());
+    if(hasReprojData && depthId != ResourceId())
     {
       PixelValue depthVal = r->PickPixel(depthId, depthX, depthY, {}, CompType::Depth);
       float depth = depthVal.floatValue[0];
