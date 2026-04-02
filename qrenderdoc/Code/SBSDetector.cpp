@@ -114,9 +114,9 @@ rdcarray<StereoMatrixConfig> detectAllStereoMatrices(ICaptureContext &ctx)
 
     // Helper: fill the cbuffer location fields and push a candidate.
     auto pushCandidate = [&](StereoMatrixConfig &cfg) {
-      // Use fixedBindNumber (shader binding slot), not bi (reflection array index).
+      // bi is the reflection list index, which is what GetConstantBlock expects.
       UsedDescriptor cbufDesc =
-          ctx.CurPipelineState().GetConstantBlock(ShaderStage::Pixel, block.fixedBindNumber, 0);
+          ctx.CurPipelineState().GetConstantBlock(ShaderStage::Pixel, (uint32_t)bi, 0);
       if(cbufDesc.descriptor.resource == ResourceId())
         return;
       cfg.cbufId = cbufDesc.descriptor.resource;
