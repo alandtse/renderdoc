@@ -604,6 +604,8 @@
     <ClCompile Include="Code\qprocessinfo.cpp" />
     <ClCompile Include="Code\pyrenderdoc\PythonContext.cpp" />
     <ClCompile Include="Code\QRDUtils.cpp" />
+    <ClCompile Include="Code\SBSDetector.cpp" />
+    <ClCompile Include="Code\SBSMapper.cpp" />
     <ClCompile Include="Code\MiniQtHelper.cpp" />
     <ClCompile Include="Code\Resources.cpp" />
     <ClCompile Include="Code\RGPInterop.cpp" />
@@ -1012,6 +1014,8 @@
     <ClInclude Include="$(IntDir)generated\ui_VulkanPipelineStateViewer.h" />
     <ClInclude Include="Code\RGPInterop.h" />
     <ClInclude Include="Code\CaptureContext.h" />
+    <ClInclude Include="Code\SBSDetector.h" />
+    <ClInclude Include="Code\SBSMapper.h" />
     <ClInclude Include="Styles\StyleData.h" />
     <ClInclude Include="Code\qprocessinfo.h" />
     <ClInclude Include="Code\MiniQtHelper.h" />

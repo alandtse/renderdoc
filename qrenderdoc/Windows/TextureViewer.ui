@@ -526,6 +526,25 @@
      </widget>
     </item>
     <item>
+     <widget class="QToolButton" name="sbsToggle">
+      <property name="toolTip">
+       <string>Enable SBS (side-by-side) stereo mode. Left half = left eye, right half = right eye. Enables jumping between corresponding pixels in each eye. Right-click for settings.</string>
+      </property>
+      <property name="text">
+       <string>SBS</string>
+      </property>
+      <property name="checkable">
+       <bool>true</bool>
+      </property>
+      <property name="toolButtonStyle">
+       <enum>Qt::ToolButtonTextOnly</enum>
+      </property>
+      <property name="autoRaise">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
+    <item>
      <widget class="QToolButton" name="resourceDetails">
       <property name="toolTip">
        <string>Open the currently visible resource's details in the resource inspector</string>
@@ -1218,6 +1237,39 @@ See FAQ on &quot;Gamma display of linear data&quot;</string>
         <property name="icon">
          <iconset resource="../Resources/resources.qrc">
           <normaloff>:/wrench.png</normaloff>:/wrench.png</iconset>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0" colspan="2">
+       <widget class="QPushButton" name="jumpOtherEye">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <property name="text">
+         <string>Other Eye</string>
+        </property>
+        <property name="icon">
+         <iconset resource="../Resources/resources.qrc">
+          <normaloff>:/arrow_join.png</normaloff>:/arrow_join.png</iconset>
+        </property>
+        <property name="toolTip">
+         <string>Jump to the corresponding pixel in the other eye (SBS stereo mode)</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0" colspan="2">
+       <widget class="QLabel" name="sbsEyeCompare">
+        <property name="text">
+         <string/>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
+        </property>
+        <property name="wordWrap">
+         <bool>false</bool>
+        </property>
+        <property name="toolTip">
+         <string>Pixel values at the picked pixel (src) and other-eye pixel (dst), with per-channel absolute diff (D)</string>
         </property>
        </widget>
       </item>

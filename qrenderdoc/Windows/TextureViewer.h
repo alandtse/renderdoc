@@ -30,12 +30,14 @@
 #include <QMouseEvent>
 #include <QTime>
 #include "Code/Interface/QRDInterface.h"
+#include "Code/SBSMapper.h"
 
 namespace Ui
 {
 class TextureViewer;
 }
 
+class QLabel;
 class RDTreeWidgetItem;
 class ResourcePreview;
 class ThumbnailStrip;
@@ -194,6 +196,9 @@ private slots:
   void on_saveTex_clicked();
   void on_debugPixelContext_clicked();
   void on_pixelHistory_clicked();
+  void on_sbsToggle_clicked(bool checked);
+  void on_jumpOtherEye_clicked();
+  void updateSBSCompare();
 
   void on_customCreate_clicked();
   void on_customEdit_clicked();
@@ -252,6 +257,11 @@ private:
 
   void UI_UpdateChannels();
 
+  void UI_UpdatePickedCrosshair();
+  float SBSDynResHalfWidth();
+  bool detectSBSFrame() const;
+  void on_sbsSettings_clicked();
+
   void HighlightUsage();
 
   void SelectPreview(ResourcePreview *prev);
@@ -307,6 +317,10 @@ private:
   void UI_UpdateCachedTexture();
 
   void ShowGotoPopup();
+
+  // Formats the src/dst/delta HTML for the SBS eye-compare label.
+  QString formatSBSCompareLabel(const PixelValue &srcVal, const PixelValue &dstVal,
+                                uint32_t eyeIndex, CompType typeCast);
 
   bool ShouldFlipForGL();
   uint32_t MipCoordFromBase(int coord, const uint32_t dim);
@@ -385,4 +399,40 @@ private:
   QString getShaderPath(const QString &filename) const;
 
   TextureDisplay m_TexDisplay;
+
+  SBSMapper m_SBSMapper;
+
+  // Four 1px solid border-line widgets forming a box around the picked pixel.
+  // Using 4 thin widgets instead of one with a transparent interior avoids
+  // the backing-store compositing issue where "transparent" shows the parent's
+  // grey background instead of the OpenGL content below.
+  QWidget *m_PickedCrosshair[4] = {};
+
+  // Pixel value comparison label populated after "Other Eye" jump.
+  QLabel *m_SBSEyeCompare = NULL;
+
+  // When false, matrix reprojection is skipped and the simple mirror fallback is always used.
+  bool m_SBSMatrixReprojEnabled = true;
+
+  // Which detected cbuffer candidate to use for matrix reprojection (-1 = auto, 0+ = specific index).
+  int m_SBSCbufferIndex = -1;
+
+  // Epsilon for eye-comparison delta coloring (neutral band around zero).
+  double m_SBSDeltaEpsilon = 0.001;
+
+  // Dynamic resolution override for SBS reprojection (0 = auto-detect from viewport).
+  int m_SBSDynResW = 0;
+  int m_SBSDynResH = 0;
+
+  // When true, SBS mode is auto-enabled/disabled based on frame heuristics.
+  bool m_SBSAutoEnable = true;
+
+  // Tracks the last pixel pick that triggered an auto compare update.
+  QPoint m_SBSLastAutoComparePick = QPoint(-1, -1);
+
+  // Manual matrix override members (used when m_SBSUseManualMatrices is true).
+  bool m_SBSUseManualMatrices = false;
+  float m_SBSManualVP[2][16];
+  float m_SBSManualVPInv[2][16];
+  float m_SBSManualCamPos[2][4];
 };

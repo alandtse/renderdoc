@@ -176,6 +176,8 @@ SOURCES += Code/qrenderdoc.cpp \
     Code/BufferFormatter.cpp \
     Code/Resources.cpp \
     Code/RGPInterop.cpp \
+    Code/SBSDetector.cpp \
+    Code/SBSMapper.cpp \
     Code/pyrenderdoc/PythonContext.cpp \
     Code/Interface/QRDInterface.cpp \
     Code/Interface/Analytics.cpp \
@@ -260,6 +262,8 @@ SOURCES += Code/qrenderdoc.cpp \
 HEADERS += Code/CaptureContext.h \
     Code/qprocessinfo.h \
     Code/ReplayManager.h \
+    Code/SBSDetector.h \
+    Code/SBSMapper.h \
     Code/ScintillaSyntax.h \
     Code/QRDUtils.h \
     Code/MiniQtHelper.h \
