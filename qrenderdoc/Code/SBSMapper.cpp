@@ -64,7 +64,8 @@ void SBSMapper::normalizeConvention(VRFrameBufferMatrices &mats)
 {
   float nx = mats.viewProj[0][12], ny = mats.viewProj[0][13], nz = mats.viewProj[0][14];
   float normSq = nx * nx + ny * ny + nz * nz;
-  if(normSq < 0.81f || normSq > 1.21f)    // outside [0.9, 1.1] band → column-major
+  // normSq ≈ 0 → orthographic (zero W-row translation) — skip; not column-major perspective.
+  if(normSq > 0.01f && (normSq < 0.81f || normSq > 1.21f))    // outside [0.9, 1.1] band → column-major
   {
     transpose4x4(mats.viewProj[0]);
     transpose4x4(mats.viewProj[1]);

@@ -4425,13 +4425,18 @@ bool TextureViewer::isCurrentOutputTexture()
   // When following a pipeline slot the type directly encodes output vs input — same logic the
   // pixel viewer uses to decide what to pick from.
   if(!currentTextureIsLocked())
-    return m_Following.Type == FollowType::OutputColor || m_Following.Type == FollowType::ReadWrite;
+    return m_Following.Type == FollowType::OutputColor ||
+           m_Following.Type == FollowType::OutputDepth ||
+           m_Following.Type == FollowType::OutputDepthResolve ||
+           m_Following.Type == FollowType::ReadWrite;
   // Locked to an arbitrary resource: enumerate the current draw's outputs to check.
   rdcarray<Descriptor> outputs = Following::GetOutputTargets(m_Ctx);
   for(const Descriptor &d : outputs)
     if(d.resource == m_TexDisplay.resourceId)
       return true;
-  return Following::GetDepthTarget(m_Ctx).resource == m_TexDisplay.resourceId;
+  if(Following::GetDepthTarget(m_Ctx).resource == m_TexDisplay.resourceId)
+    return true;
+  return Following::GetDepthResolveTarget(m_Ctx).resource == m_TexDisplay.resourceId;
 }
 
 void TextureViewer::on_sbsToggle_clicked(bool checked)
@@ -4608,6 +4613,9 @@ void TextureViewer::on_jumpOtherEye_clicked()
     memcpy(manualMats.viewProj[1], m_SBSManualVP[1], 64);
     memcpy(manualMats.viewProjInverse[0], m_SBSManualVPInv[0], 64);
     memcpy(manualMats.viewProjInverse[1], m_SBSManualVPInv[1], 64);
+    // Normalize before capture so the lambda receives row-major matrices regardless of
+    // whether the user pasted HLSL column-major data into the manual matrix dialog.
+    SBSMapper::normalizeConvention(manualMats);
   }
 
   Descriptor depthDesc = Following::GetDepthTarget(m_Ctx);
@@ -4767,6 +4775,9 @@ void TextureViewer::updateSBSCompare()
     memcpy(manualMats.viewProj[1], m_SBSManualVP[1], 64);
     memcpy(manualMats.viewProjInverse[0], m_SBSManualVPInv[0], 64);
     memcpy(manualMats.viewProjInverse[1], m_SBSManualVPInv[1], 64);
+    // Normalize before capture so the lambda receives row-major matrices regardless of
+    // whether the user pasted HLSL column-major data into the manual matrix dialog.
+    SBSMapper::normalizeConvention(manualMats);
   }
 
   rdcarray<StereoMatrixConfig> matCandidates;
@@ -5016,7 +5027,8 @@ void TextureViewer::on_sbsSettings_clicked()
          "Pick the rightmost valid pixel in the rendered area first."));
   QObject::connect(pickBtn, &QPushButton::clicked, [wBox, this]() {
     if(m_PickedPoint.x() >= 0)
-      wBox->setValue(m_PickedPoint.x());
+      // Pixel X is zero-based; width is 1-based (the rightmost valid pixel is at x = width-1).
+      wBox->setValue(m_PickedPoint.x() + 1);
   });
 
   QHBoxLayout *wRow = new QHBoxLayout();
@@ -5031,7 +5043,12 @@ void TextureViewer::on_sbsSettings_clicked()
   if(tex && texW > 0)
   {
     float scaleX = 1.0f, scaleY = 1.0f;
+    // Temporarily suppress any manual override so computeSBSDynResScale reports the
+    // viewport-based auto-detected scale, not the current user setting.
+    int savedDynResW = m_SBSDynResW;
+    m_SBSDynResW = 0;
     computeSBSDynResScale(texW, texH, scaleX, scaleY);
+    m_SBSDynResW = savedDynResW;
     autoInfo = QFormatStr("%1 x %2  (%3%)  [tex: %4 x %5]")
                    .arg(qMax(1, (int)((float)texW * scaleX)))
                    .arg(qMax(1, (int)((float)texH * scaleY)))
