@@ -967,6 +967,34 @@ void TextureViewer::RT_UpdateVisualRange(IReplayController *r)
   }
 }
 
+// Resolves the effective display CompType, honouring typeCast unless the format is YUV
+// (YUV retains its native compType regardless of the type cast).
+static CompType resolveDisplayCompType(const TextureDescription &tex, CompType typeCast)
+{
+  if(typeCast == CompType::Typeless)
+    return tex.format.compType;
+  bool yuv =
+      (tex.format.type == ResourceFormatType::YUV8 || tex.format.type == ResourceFormatType::YUV10 ||
+       tex.format.type == ResourceFormatType::YUV12 || tex.format.type == ResourceFormatType::YUV16);
+  return yuv ? tex.format.compType : typeCast;
+}
+
+// Returns true if the texture should be treated as a depth/stencil view for display purposes,
+// taking the active type cast into account.
+static bool texIsDepthStencil(const TextureDescription &tex, CompType typeCast)
+{
+  CompType effective = (typeCast != CompType::Typeless) ? typeCast : tex.format.compType;
+  return (tex.creationFlags & TextureCategory::DepthTarget) || (effective == CompType::Depth) ||
+         (tex.format.type == ResourceFormatType::S8);
+}
+
+// Returns true if the format has a stencil channel alongside (or instead of) depth.
+static bool texHasStencilChannel(ResourceFormatType type)
+{
+  return type == ResourceFormatType::D16S8 || type == ResourceFormatType::D24S8 ||
+         type == ResourceFormatType::D32S8 || type == ResourceFormatType::S8;
+}
+
 void TextureViewer::UI_UpdateStatusText()
 {
   TextureDescription *texptr = GetCurrentTexture();
@@ -975,18 +1003,8 @@ void TextureViewer::UI_UpdateStatusText()
 
   TextureDescription &tex = *texptr;
 
-  CompType compType = tex.format.compType;
-
-  const bool yuv =
-      (tex.format.type == ResourceFormatType::YUV8 || tex.format.type == ResourceFormatType::YUV10 ||
-       tex.format.type == ResourceFormatType::YUV12 || tex.format.type == ResourceFormatType::YUV16);
-
-  if(tex.format.compType != m_TexDisplay.typeCast && m_TexDisplay.typeCast != CompType::Typeless &&
-     !yuv)
-    compType = m_TexDisplay.typeCast;
-
-  bool dsv = (tex.creationFlags & TextureCategory::DepthTarget) || (compType == CompType::Depth) ||
-             (tex.format.type == ResourceFormatType::S8);
+  CompType compType = resolveDisplayCompType(tex, m_TexDisplay.typeCast);
+  bool dsv = texIsDepthStencil(tex, m_TexDisplay.typeCast);
   bool uintTex = (compType == CompType::UInt);
   bool sintTex = (compType == CompType::SInt);
 
@@ -1113,9 +1131,7 @@ void TextureViewer::UI_UpdateStatusText()
         pickedText += Formatter::Format(val.floatValue[0]);
       }
 
-      if(tex.format.type == ResourceFormatType::D16S8 ||
-         tex.format.type == ResourceFormatType::D24S8 ||
-         tex.format.type == ResourceFormatType::D32S8 || tex.format.type == ResourceFormatType::S8)
+      if(texHasStencilChannel(tex.format.type))
       {
         int stencil = (int)(255.0f * val.floatValue[1]);
 
@@ -2050,6 +2066,13 @@ void TextureViewer::textureTab_Changed(int index)
   if(w)
   {
     w->setLayout(ui->renderLayout);
+
+    // m_PickedCrosshair widgets must be siblings of ui->render under its new parent so that
+    // UI_UpdatePickedCrosshair's mapTo() call finds a valid ancestor. setParent() hides the
+    // widget; UI_UpdatePickedCrosshair will restore visibility as needed.
+    for(int i = 0; i < 4; i++)
+      if(m_PickedCrosshair[i])
+        m_PickedCrosshair[i]->setParent(w);
 
     if(w == ui->renderContainer)
       m_LockedId = ResourceId();
@@ -3201,6 +3224,8 @@ void TextureViewer::OnCaptureClosed()
 
 void TextureViewer::OnEventChanged(uint32_t eventId)
 {
+  m_SBSMatrixCacheEventId = ~0u;
+
   bool copy = false, clear = false, compute = false;
   Following::GetActionContext(m_Ctx, copy, clear, compute);
 
@@ -4280,6 +4305,23 @@ void TextureViewer::UI_UpdatePickedCrosshair()
     return;
   }
 
+  // Choose crosshair color based on the luminance of the picked pixel so the marker stays
+  // visible against both dark and light (e.g. white) backgrounds.
+  float r = qBound(0.0f, m_CurPixelValue.floatValue[0], 1.0f);
+  float g = qBound(0.0f, m_CurPixelValue.floatValue[1], 1.0f);
+  float b = qBound(0.0f, m_CurPixelValue.floatValue[2], 1.0f);
+  float luma = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+  bool dark = (luma > 0.5f);
+  if(dark != m_CrosshairDark)
+  {
+    m_CrosshairDark = dark;
+    QString style = dark ? lit("background: rgba(20, 20, 180, 220);")
+                         : lit("background: rgba(255, 204, 68, 220);");
+    for(int i = 0; i < 4; i++)
+      if(m_PickedCrosshair[i])
+        m_PickedCrosshair[i]->setStyleSheet(style);
+  }
+
   // Top, bottom, left side (excl. corners), right side (excl. corners).
   int innerH = qMax(0, pixSize - 2);
   m_PickedCrosshair[0]->setGeometry(x, y, pixSize, 1);                     // top
@@ -4305,11 +4347,9 @@ float TextureViewer::SBSDynResHalfWidth()
   TextureDescription *tex = GetCurrentTexture();
   if(!tex || tex->width == 0)
     return 0.0f;
-  float texW = (float)tex->width;
-  Viewport vp = m_Ctx.CurPipelineState().GetViewport(0);
-  float autoW = (vp.width > 0.0f && vp.width < texW) ? vp.width : texW;
-  float scale = (m_SBSDynResW > 0) ? (float)m_SBSDynResW / texW : autoW / texW;
-  return texW * qBound(0.1f, scale, 1.0f) * 0.5f;
+  float scaleX = 1.0f, scaleY = 1.0f;
+  computeSBSDynResScale(tex->width, tex->height, scaleX, scaleY);
+  return (float)tex->width * scaleX * 0.5f;
 }
 
 bool TextureViewer::detectSBSFrame() const
@@ -4320,7 +4360,83 @@ bool TextureViewer::detectSBSFrame() const
   // stereo draw.
   if(!m_CachedTexture || m_CachedTexture->width <= m_CachedTexture->height)
     return false;
-  return !detectAllStereoMatrices(m_Ctx).empty();
+  return !getCachedStereoMatrices().empty();
+}
+
+const rdcarray<StereoMatrixConfig> &TextureViewer::getCachedStereoMatrices() const
+{
+  uint32_t curEvent = m_Ctx.CurEvent();
+  if(curEvent != m_SBSMatrixCacheEventId)
+  {
+    m_SBSMatrixCache = detectAllStereoMatrices(m_Ctx);
+    m_SBSMatrixCacheEventId = curEvent;
+  }
+  return m_SBSMatrixCache;
+}
+
+void TextureViewer::computeSBSDynResScale(uint32_t texW, uint32_t texH, float &scaleX, float &scaleY)
+{
+  Viewport vp = m_Ctx.CurPipelineState().GetViewport(0);
+  bool isOutput = isCurrentOutputTexture();
+  float autoW = (float)texW;
+  float autoH = (float)texH;
+
+  if(isOutput && vp.width > 0.0f && vp.width < (float)texW)
+  {
+    // For output textures, the current draw's viewport gives the rendered region.
+    autoW = vp.width;
+    autoH = vp.height;
+  }
+  else if(!isOutput)
+  {
+    // For input textures at an API-level copy/resolve, the declared copy destination
+    // directly reflects what was read from the source — use its dimensions as a dynres hint.
+    // Draw-call outputs are NOT used: a draw that reads from a texture may write to a target
+    // of unrelated size, making it an unreliable proxy for the input's rendered region.
+    const ActionDescription *action = m_Ctx.CurAction();
+    if(action && ((action->flags & ActionFlags::Copy) || (action->flags & ActionFlags::Resolve)) &&
+       action->copySource == m_TexDisplay.resourceId)
+    {
+      TextureDescription *dstTex = m_Ctx.GetTexture(action->copyDestination);
+      if(dstTex && dstTex->width > 0 && dstTex->width < texW)
+      {
+        autoW = (float)dstTex->width;
+        autoH = (float)dstTex->height;
+      }
+    }
+  }
+
+  if(m_SBSDynResW > 0)
+  {
+    // Single manual override: uniform scale derived from rendered width alone.
+    scaleX = scaleY = qBound(0.1f, (float)m_SBSDynResW / (float)texW, 1.0f);
+  }
+  else
+  {
+    scaleX = qBound(0.1f, autoW / (float)texW, 1.0f);
+    scaleY = qBound(0.1f, autoH / (float)texH, 1.0f);
+  }
+}
+
+bool TextureViewer::isCurrentOutputTexture()
+{
+  if(m_TexDisplay.resourceId == ResourceId())
+    return false;
+  // When following a pipeline slot the type directly encodes output vs input — same logic the
+  // pixel viewer uses to decide what to pick from.
+  if(!currentTextureIsLocked())
+    return m_Following.Type == FollowType::OutputColor ||
+           m_Following.Type == FollowType::OutputDepth ||
+           m_Following.Type == FollowType::OutputDepthResolve ||
+           m_Following.Type == FollowType::ReadWrite;
+  // Locked to an arbitrary resource: enumerate the current draw's outputs to check.
+  rdcarray<Descriptor> outputs = Following::GetOutputTargets(m_Ctx);
+  for(const Descriptor &d : outputs)
+    if(d.resource == m_TexDisplay.resourceId)
+      return true;
+  if(Following::GetDepthTarget(m_Ctx).resource == m_TexDisplay.resourceId)
+    return true;
+  return Following::GetDepthResolveTarget(m_Ctx).resource == m_TexDisplay.resourceId;
 }
 
 void TextureViewer::on_sbsToggle_clicked(bool checked)
@@ -4336,11 +4452,16 @@ void TextureViewer::on_sbsToggle_clicked(bool checked)
 }
 
 QString TextureViewer::formatSBSCompareLabel(const PixelValue &srcVal, const PixelValue &dstVal,
-                                             uint32_t eyeIndex, CompType typeCast)
+                                             uint32_t eyeIndex, CompType typeCast,
+                                             const TextureDescription *tex)
 {
   float eps = (float)m_SBSDeltaEpsilon;
-  bool isUInt = (typeCast == CompType::UInt || typeCast == CompType::UScaled);
-  bool isSInt = (typeCast == CompType::SInt || typeCast == CompType::SScaled);
+  CompType compType = tex ? resolveDisplayCompType(*tex, typeCast) : typeCast;
+  bool isUInt = (compType == CompType::UInt);
+  bool isSInt = (compType == CompType::SInt);
+  bool isDSV = tex && texIsDepthStencil(*tex, typeCast);
+  bool isS8Only = tex && (tex->format.type == ResourceFormatType::S8);
+  bool hasStencil = tex && texHasStencilChannel(tex->format.type);
 
   auto fmtVal = [isUInt, isSInt](const PixelValue &pv, int i) -> QString {
     if(isUInt)
@@ -4371,21 +4492,62 @@ QString TextureViewer::formatSBSCompareLabel(const PixelValue &srcVal, const Pix
 
   QString srcEye = eyeIndex == 0 ? lit("L") : lit("R");
   QString dstEye = eyeIndex == 0 ? lit("R") : lit("L");
-  QString srcRow = QFormatStr("%1 %2 %3 %4")
-                       .arg(fmtVal(srcVal, 0))
-                       .arg(fmtVal(srcVal, 1))
-                       .arg(fmtVal(srcVal, 2))
-                       .arg(fmtVal(srcVal, 3));
-  QString dstRow = QFormatStr("%1 %2 %3 %4")
-                       .arg(fmtVal(dstVal, 0))
-                       .arg(fmtVal(dstVal, 1))
-                       .arg(fmtVal(dstVal, 2))
-                       .arg(fmtVal(dstVal, 3));
-  QString deltaRow = QFormatStr("%1 %2 %3 %4")
-                         .arg(fmtDelta(srcVal, dstVal, 0))
-                         .arg(fmtDelta(srcVal, dstVal, 1))
-                         .arg(fmtDelta(srcVal, dstVal, 2))
-                         .arg(fmtDelta(srcVal, dstVal, 3));
+
+  QString srcRow, dstRow, deltaRow;
+
+  if(isDSV)
+  {
+    // Depth-stencil: mirror the footer display from UI_UpdateStatusText.
+    // depth is in floatValue[0]; for D*S8 formats stencil is floatValue[1] scaled to [0,255];
+    // for S8-only stencil is uintValue[0].
+    if(!isS8Only)
+    {
+      srcRow = tr("Depth %1").arg(fmtVal(srcVal, 0));
+      dstRow = tr("Depth %1").arg(fmtVal(dstVal, 0));
+      deltaRow = tr("Depth ") + fmtDelta(srcVal, dstVal, 0);
+    }
+
+    if(hasStencil)
+    {
+      int srcStencil = isS8Only ? (int)srcVal.uintValue[0] : (int)(255.0f * srcVal.floatValue[1]);
+      int dstStencil = isS8Only ? (int)dstVal.uintValue[0] : (int)(255.0f * dstVal.floatValue[1]);
+      int stencilDelta = dstStencil - srcStencil;
+      const char *stCol = stencilDelta == 0    ? "#000000"
+                          : (stencilDelta > 0) ? "#007700"
+                                               : "#cc0000";
+
+      if(!isS8Only)
+      {
+        srcRow += lit(" ");
+        dstRow += lit(" ");
+        deltaRow += lit(" ");
+      }
+      srcRow += tr("Stencil 0x%1").arg(Formatter::Format(uint8_t(srcStencil & 0xff), true));
+      dstRow += tr("Stencil 0x%1").arg(Formatter::Format(uint8_t(dstStencil & 0xff), true));
+      deltaRow += QFormatStr("Stencil <span style='color:%1'>%2</span>")
+                      .arg(QLatin1String(stCol))
+                      .arg(stencilDelta);
+    }
+  }
+  else
+  {
+    srcRow = QFormatStr("%1 %2 %3 %4")
+                 .arg(fmtVal(srcVal, 0))
+                 .arg(fmtVal(srcVal, 1))
+                 .arg(fmtVal(srcVal, 2))
+                 .arg(fmtVal(srcVal, 3));
+    dstRow = QFormatStr("%1 %2 %3 %4")
+                 .arg(fmtVal(dstVal, 0))
+                 .arg(fmtVal(dstVal, 1))
+                 .arg(fmtVal(dstVal, 2))
+                 .arg(fmtVal(dstVal, 3));
+    deltaRow = QFormatStr("%1 %2 %3 %4")
+                   .arg(fmtDelta(srcVal, dstVal, 0))
+                   .arg(fmtDelta(srcVal, dstVal, 1))
+                   .arg(fmtDelta(srcVal, dstVal, 2))
+                   .arg(fmtDelta(srcVal, dstVal, 3));
+  }
+
   return QFormatStr("<pre><b>%1:</b> %2\n<b>%3:</b> %4\n<b>D:</b> %5\n</pre>")
       .arg(srcEye)
       .arg(srcRow)
@@ -4406,19 +4568,8 @@ void TextureViewer::on_jumpOtherEye_clicked()
   uint32_t texW = tex->width;
   uint32_t texH = tex->height;
 
-  // Compute dynres scale before anything else — eye detection and all coordinate math depend on it.
-  // The viewport covers the full SBS texture (both eyes). dynResScaleX = viewportW / texW so that
-  // dynResHalfW = texW * dynResScaleX * 0.5 is the per-eye rendered pixel width.
   float dynResScaleX = 1.0f, dynResScaleY = 1.0f;
-  {
-    Viewport vp = m_Ctx.CurPipelineState().GetViewport(0);
-    float autoW = (vp.width > 0.0f && vp.width < (float)texW) ? vp.width : (float)texW;
-    float autoH = (vp.height > 0.0f && vp.height < (float)texH) ? vp.height : (float)texH;
-    dynResScaleX = (m_SBSDynResW > 0) ? (float)m_SBSDynResW / (float)texW : autoW / (float)texW;
-    dynResScaleY = (m_SBSDynResH > 0) ? (float)m_SBSDynResH / (float)texH : autoH / (float)texH;
-    dynResScaleX = qBound(0.1f, dynResScaleX, 1.0f);
-    dynResScaleY = qBound(0.1f, dynResScaleY, 1.0f);
-  }
+  computeSBSDynResScale(texW, texH, dynResScaleX, dynResScaleY);
 
   // Left eye: x in [0, dynResHalfW), right eye: x in [dynResHalfW, renderedW).
   // Pixels at x >= renderedW are in the unrendered border — skip.
@@ -4450,7 +4601,7 @@ void TextureViewer::on_jumpOtherEye_clicked()
   rdcarray<StereoMatrixConfig> matCandidates;
   if(m_SBSMatrixReprojEnabled)
   {
-    matCandidates = detectAllStereoMatrices(m_Ctx);
+    matCandidates = getCachedStereoMatrices();
   }
   int sbsCbufferIndex = m_SBSCbufferIndex;
 
@@ -4462,6 +4613,9 @@ void TextureViewer::on_jumpOtherEye_clicked()
     memcpy(manualMats.viewProj[1], m_SBSManualVP[1], 64);
     memcpy(manualMats.viewProjInverse[0], m_SBSManualVPInv[0], 64);
     memcpy(manualMats.viewProjInverse[1], m_SBSManualVPInv[1], 64);
+    // Normalize before capture so the lambda receives row-major matrices regardless of
+    // whether the user pasted HLSL column-major data into the manual matrix dialog.
+    SBSMapper::normalizeConvention(manualMats);
   }
 
   Descriptor depthDesc = Following::GetDepthTarget(m_Ctx);
@@ -4537,6 +4691,7 @@ void TextureViewer::on_jumpOtherEye_clicked()
             memcpy(mats.cameraPosAdjust[0], cbufData.data() + matCfg.cameraPosAdjustOffset[0], 16);
             memcpy(mats.cameraPosAdjust[1], cbufData.data() + matCfg.cameraPosAdjustOffset[1], 16);
           }
+          SBSMapper::normalizeConvention(mats);
           // Structural candidates (detected without matching variable names) must have
           // VP * VPInv ≈ identity confirmed before we trust the reprojection.
           if(matCfg.needsVerification &&
@@ -4567,7 +4722,7 @@ void TextureViewer::on_jumpOtherEye_clicked()
   if(m_SBSEyeCompare)
   {
     m_SBSEyeCompare->setTextFormat(Qt::RichText);
-    m_SBSEyeCompare->setText(formatSBSCompareLabel(srcVal, dstVal, eyeIndex, texTypeCast));
+    m_SBSEyeCompare->setText(formatSBSCompareLabel(srcVal, dstVal, eyeIndex, texTypeCast, tex));
     m_SBSEyeCompare->show();
   }
 
@@ -4590,15 +4745,7 @@ void TextureViewer::updateSBSCompare()
   uint32_t texH = tex->height;
 
   float dynResScaleX = 1.0f, dynResScaleY = 1.0f;
-  {
-    Viewport vp = m_Ctx.CurPipelineState().GetViewport(0);
-    float autoW = (vp.width > 0.0f && vp.width < (float)texW) ? vp.width : (float)texW;
-    float autoH = (vp.height > 0.0f && vp.height < (float)texH) ? vp.height : (float)texH;
-    dynResScaleX = (m_SBSDynResW > 0) ? (float)m_SBSDynResW / (float)texW : autoW / (float)texW;
-    dynResScaleY = (m_SBSDynResH > 0) ? (float)m_SBSDynResH / (float)texH : autoH / (float)texH;
-    dynResScaleX = qBound(0.1f, dynResScaleX, 1.0f);
-    dynResScaleY = qBound(0.1f, dynResScaleY, 1.0f);
-  }
+  computeSBSDynResScale(texW, texH, dynResScaleX, dynResScaleY);
 
   float dynResHalfW = (float)texW * dynResScaleX * 0.5f;
   int renderedW = qMax(1, (int)((float)texW * dynResScaleX));
@@ -4628,11 +4775,14 @@ void TextureViewer::updateSBSCompare()
     memcpy(manualMats.viewProj[1], m_SBSManualVP[1], 64);
     memcpy(manualMats.viewProjInverse[0], m_SBSManualVPInv[0], 64);
     memcpy(manualMats.viewProjInverse[1], m_SBSManualVPInv[1], 64);
+    // Normalize before capture so the lambda receives row-major matrices regardless of
+    // whether the user pasted HLSL column-major data into the manual matrix dialog.
+    SBSMapper::normalizeConvention(manualMats);
   }
 
   rdcarray<StereoMatrixConfig> matCandidates;
   if(!useManualMats && m_SBSMatrixReprojEnabled)
-    matCandidates = detectAllStereoMatrices(m_Ctx);
+    matCandidates = getCachedStereoMatrices();
   int sbsCbufferIndex = m_SBSCbufferIndex;
 
   Descriptor depthDesc = Following::GetDepthTarget(m_Ctx);
@@ -4702,6 +4852,7 @@ void TextureViewer::updateSBSCompare()
               memcpy(mats.cameraPosAdjust[0], cbufData.data() + matCfg.cameraPosAdjustOffset[0], 16);
               memcpy(mats.cameraPosAdjust[1], cbufData.data() + matCfg.cameraPosAdjustOffset[1], 16);
             }
+            SBSMapper::normalizeConvention(mats);
             if(matCfg.needsVerification &&
                !SBSMapper::approxInverse(mats.viewProj[0], mats.viewProjInverse[0]))
               continue;
@@ -4727,7 +4878,8 @@ void TextureViewer::updateSBSCompare()
       if(!m_SBSEyeCompare)
         return;
       m_SBSEyeCompare->setTextFormat(Qt::RichText);
-      m_SBSEyeCompare->setText(formatSBSCompareLabel(srcVal, dstVal, eyeIndex, texTypeCast));
+      m_SBSEyeCompare->setText(
+          formatSBSCompareLabel(srcVal, dstVal, eyeIndex, texTypeCast, GetCurrentTexture()));
       m_SBSEyeCompare->show();
     });
   });
@@ -4736,7 +4888,7 @@ void TextureViewer::updateSBSCompare()
 void TextureViewer::on_sbsSettings_clicked()
 {
   // Detect candidates and pre-read the first selected candidate's cbuffer for value preview.
-  rdcarray<StereoMatrixConfig> candidates = detectAllStereoMatrices(m_Ctx);
+  rdcarray<StereoMatrixConfig> candidates = getCachedStereoMatrices();
   int previewIdx =
       (m_SBSCbufferIndex >= 0 && m_SBSCbufferIndex < (int)candidates.size()) ? m_SBSCbufferIndex : 0;
 
@@ -4843,37 +4995,69 @@ void TextureViewer::on_sbsSettings_clicked()
                 (sel && sel->hasCameraPosAdjust) ? prevCam1 : zeros);
 
   // --- Dynamic resolution override ---
+  // A single rendered-width value controls both X and Y (uniform scale assumed).
+  // 0 = auto-detect from the current draw's context.
+  TextureDescription *tex = GetCurrentTexture();
+  uint32_t texW = tex ? tex->width : 0;
+  uint32_t texH = tex ? tex->height : 0;
+
+  auto pctLabelText = [texW](int w) -> QString {
+    if(w <= 0 || texW == 0)
+      return tr("Auto");
+    return QFormatStr("%1%").arg((double)(100.0f * (float)w / (float)texW), 0, 'f', 1);
+  };
+
   QSpinBox *wBox = new QSpinBox(&dlg);
   wBox->setRange(0, 16384);
   wBox->setValue(m_SBSDynResW);
   wBox->setSpecialValueText(tr("Auto"));
-  wBox->setToolTip(tr("Full SBS rendered width (covers both eyes; 0 = auto-detect from viewport)"));
+  wBox->setToolTip(
+      tr("Full SBS rendered width covering both eyes (0 = auto-detect).\n"
+         "Height is derived proportionally. Use 'Set from pick' to read\n"
+         "the right edge of the rendered region from the current picked pixel."));
 
-  QSpinBox *hBox = new QSpinBox(&dlg);
-  hBox->setRange(0, 16384);
-  hBox->setValue(m_SBSDynResH);
-  hBox->setSpecialValueText(tr("Auto"));
-  hBox->setToolTip(tr("Rendered height (0 = auto-detect from viewport)"));
+  QLabel *pctLabel = new QLabel(pctLabelText(m_SBSDynResW), &dlg);
+  QObject::connect(wBox, QOverload<int>::of(&QSpinBox::valueChanged),
+                   [pctLabel, pctLabelText](int v) { pctLabel->setText(pctLabelText(v)); });
+
+  QPushButton *pickBtn = new QPushButton(tr("Set from pick"), &dlg);
+  pickBtn->setEnabled(m_PickedPoint.x() >= 0);
+  pickBtn->setToolTip(
+      tr("Set rendered width to the current picked pixel's X coordinate.\n"
+         "Pick the rightmost valid pixel in the rendered area first."));
+  QObject::connect(pickBtn, &QPushButton::clicked, [wBox, this]() {
+    if(m_PickedPoint.x() >= 0)
+      // Pixel X is zero-based; width is 1-based (the rightmost valid pixel is at x = width-1).
+      wBox->setValue(m_PickedPoint.x() + 1);
+  });
+
+  QHBoxLayout *wRow = new QHBoxLayout();
+  wRow->addWidget(wBox);
+  wRow->addWidget(pctLabel);
+  wRow->addWidget(pickBtn);
+  wRow->addStretch();
+  QWidget *wRowWidget = new QWidget(&dlg);
+  wRowWidget->setLayout(wRow);
 
   QString autoInfo = tr("(no capture)");
-  TextureDescription *tex = GetCurrentTexture();
-  if(tex && tex->width > 0)
+  if(tex && texW > 0)
   {
-    Viewport vp = m_Ctx.CurPipelineState().GetViewport(0);
-    int autoW = (vp.width > 0.0f && vp.width < (float)tex->width) ? (int)vp.width : (int)tex->width;
-    int autoH =
-        (vp.height > 0.0f && vp.height < (float)tex->height) ? (int)vp.height : (int)tex->height;
-    float pctX = (autoW > 0 && tex->width > 0) ? 100.0f * autoW / (float)tex->width : 0.0f;
+    float scaleX = 1.0f, scaleY = 1.0f;
+    // Temporarily suppress any manual override so computeSBSDynResScale reports the
+    // viewport-based auto-detected scale, not the current user setting.
+    int savedDynResW = m_SBSDynResW;
+    m_SBSDynResW = 0;
+    computeSBSDynResScale(texW, texH, scaleX, scaleY);
+    m_SBSDynResW = savedDynResW;
     autoInfo = QFormatStr("%1 x %2  (%3%)  [tex: %4 x %5]")
-                   .arg(autoW)
-                   .arg(autoH)
-                   .arg((double)pctX, 0, 'f', 1)
-                   .arg(tex->width)
-                   .arg(tex->height);
+                   .arg(qMax(1, (int)((float)texW * scaleX)))
+                   .arg(qMax(1, (int)((float)texH * scaleY)))
+                   .arg((double)(100.0f * scaleX), 0, 'f', 1)
+                   .arg(texW)
+                   .arg(texH);
   }
 
-  form->addRow(tr("Rendered width:"), wBox);
-  form->addRow(tr("Rendered height:"), hBox);
+  form->addRow(tr("Rendered width:"), wRowWidget);
   form->addRow(tr("Auto-detected:"), new QLabel(autoInfo, &dlg));
 
   // --- Auto-enable checkbox ---
@@ -5014,7 +5198,6 @@ void TextureViewer::on_sbsSettings_clicked()
     m_SBSMatrixReprojEnabled = matReprojCheck->isChecked();
     m_SBSCbufferIndex = cbufCombo->currentData().toInt();
     m_SBSDynResW = wBox->value();
-    m_SBSDynResH = hBox->value();
     m_SBSAutoEnable = autoEnableCheck->isChecked();
     m_SBSDeltaEpsilon = epsBox->value();
 

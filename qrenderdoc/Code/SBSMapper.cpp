@@ -26,6 +26,17 @@ QPoint SBSMapper::otherEyePixel(QPoint px, uint32_t texWidth, uint32_t texHeight
   return {otherX, px.y()};
 }
 
+static void transpose4x4(float M[16])
+{
+  for(int r = 0; r < 4; r++)
+    for(int c = r + 1; c < 4; c++)
+    {
+      float tmp = M[r * 4 + c];
+      M[r * 4 + c] = M[c * 4 + r];
+      M[c * 4 + r] = tmp;
+    }
+}
+
 // Multiplies a row-major 4x4 matrix M[16] by a column vector (vx,vy,vz,vw).
 // Implements the HLSL mul(M, v) convention: result[i] = dot(row_i(M), v).
 static void mulMat4Vec4(const float M[16], float vx, float vy, float vz, float vw, float out[4])
@@ -41,6 +52,28 @@ static void mulMat4Vec4(const float M[16], float vx, float vy, float vz, float v
 //
 // Input:  per-eye UV (x,y) in [0,1], NDC depth in [0,1], source eyeIndex.
 // Output: otherMonoUVx/Y in [0,1] per-eye UV for the other eye.
+// Detects whether a VP matrix was stored column-major (HLSL default) and transposes all four
+// matrices in mats to row-major if so.
+//
+// For a perspective VP matrix in row-major convention, M[12..14] is the view's Z-axis row —
+// always a unit vector (norm = 1.0). In column-major data read as row-major those bytes are the
+// last column of the mathematical matrix (projection constants mixed with translation), whose
+// norm is generally far from 1.0. Transposing VP and VPInv together preserves the inverse
+// relationship: (M^T)(M^{-1})^T = (M^{-1}M)^T = I.
+void SBSMapper::normalizeConvention(VRFrameBufferMatrices &mats)
+{
+  float nx = mats.viewProj[0][12], ny = mats.viewProj[0][13], nz = mats.viewProj[0][14];
+  float normSq = nx * nx + ny * ny + nz * nz;
+  // normSq ≈ 0 → orthographic (zero W-row translation) — skip; not column-major perspective.
+  if(normSq > 0.01f && (normSq < 0.81f || normSq > 1.21f))    // outside [0.9, 1.1] band → column-major
+  {
+    transpose4x4(mats.viewProj[0]);
+    transpose4x4(mats.viewProj[1]);
+    transpose4x4(mats.viewProjInverse[0]);
+    transpose4x4(mats.viewProjInverse[1]);
+  }
+}
+
 // Returns false if the reprojection is degenerate or the result is outside [0,1].
 bool SBSMapper::approxInverse(const float VP[16], const float VPInv[16])
 {

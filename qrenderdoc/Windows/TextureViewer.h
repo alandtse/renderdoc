@@ -30,6 +30,7 @@
 #include <QMouseEvent>
 #include <QTime>
 #include "Code/Interface/QRDInterface.h"
+#include "Code/SBSDetector.h"
 #include "Code/SBSMapper.h"
 
 namespace Ui
@@ -319,8 +320,17 @@ private:
   void ShowGotoPopup();
 
   // Formats the src/dst/delta HTML for the SBS eye-compare label.
+  // tex is used to detect depth-stencil formats; may be NULL (falls back to float4).
   QString formatSBSCompareLabel(const PixelValue &srcVal, const PixelValue &dstVal,
-                                uint32_t eyeIndex, CompType typeCast);
+                                uint32_t eyeIndex, CompType typeCast, const TextureDescription *tex);
+
+  // Returns true when the currently-displayed texture is one of the output render targets
+  // (colour or depth) bound at the current event. Used to gate viewport-based dynres detection:
+  // the current viewport only reflects the rendering scale of the selected texture when it is
+  // an output of the current draw; for input textures the viewport is irrelevant.
+  bool isCurrentOutputTexture();
+  void computeSBSDynResScale(uint32_t texW, uint32_t texH, float &scaleX, float &scaleY);
+  const rdcarray<StereoMatrixConfig> &getCachedStereoMatrices() const;
 
   bool ShouldFlipForGL();
   uint32_t MipCoordFromBase(int coord, const uint32_t dim);
@@ -407,6 +417,9 @@ private:
   // the backing-store compositing issue where "transparent" shows the parent's
   // grey background instead of the OpenGL content below.
   QWidget *m_PickedCrosshair[4] = {};
+  // Tracks whether the crosshair is currently using the dark (contrast) style to avoid
+  // redundant setStyleSheet calls.
+  bool m_CrosshairDark = false;
 
   // Pixel value comparison label populated after "Other Eye" jump.
   QLabel *m_SBSEyeCompare = NULL;
@@ -420,15 +433,21 @@ private:
   // Epsilon for eye-comparison delta coloring (neutral band around zero).
   double m_SBSDeltaEpsilon = 0.001;
 
-  // Dynamic resolution override for SBS reprojection (0 = auto-detect from viewport).
+  // Dynamic resolution override for SBS reprojection (0 = auto-detect).
+  // Stores the full SBS rendered width; Y scale is derived proportionally (scaleY = scaleX).
   int m_SBSDynResW = 0;
-  int m_SBSDynResH = 0;
 
   // When true, SBS mode is auto-enabled/disabled based on frame heuristics.
   bool m_SBSAutoEnable = true;
 
   // Tracks the last pixel pick that triggered an auto compare update.
   QPoint m_SBSLastAutoComparePick = QPoint(-1, -1);
+
+  // Per-event cache for detectAllStereoMatrices. The result only depends on the pixel-shader
+  // reflection at the current event, so it is valid for the entire event and must be invalidated
+  // in OnEventChanged.
+  mutable uint32_t m_SBSMatrixCacheEventId = ~0u;
+  mutable rdcarray<StereoMatrixConfig> m_SBSMatrixCache;
 
   // Manual matrix override members (used when m_SBSUseManualMatrices is true).
   bool m_SBSUseManualMatrices = false;
