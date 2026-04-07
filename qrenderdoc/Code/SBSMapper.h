@@ -47,4 +47,9 @@ public:
   // Returns true if VP * VPInv is approximately the 4x4 identity matrix (total absolute
   // element error < 0.5). Used to validate structurally-detected matrix candidates.
   static bool approxInverse(const float VP[16], const float VPInv[16]);
+
+  // Detects whether mats was loaded from a column-major cbuffer (HLSL default) and transposes
+  // all four matrices to row-major convention in-place if so. Safe to call on already-row-major
+  // data — the norm check is a no-op when the W-row is already a unit vector.
+  static void normalizeConvention(VRFrameBufferMatrices &mats);
 };
