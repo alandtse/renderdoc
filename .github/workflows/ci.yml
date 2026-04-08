@@ -27,38 +27,44 @@ jobs:
     - name: Check commit messages (PR)
       if: ${{ github.event_name == 'pull_request' }}
       run: |
-        git log --oneline > a
-        grep -v 7a064ae a > b
-        head -n 100 b > c
-        tail -n +2 c > commits
-        echo "Checking last 100 commits:"
+        # Only check commits introduced by this PR, not the base branch history.
+        git log --oneline origin/${{ github.base_ref }}..HEAD > commits
+        echo "Checking PR commits:"
         cat commits
         cut -d ' ' -f2- commits > commit_msgs
         echo ==================
-        if grep -q '.\{73\}' commit_msgs; then
+        if grep -q '.\{66\}' commit_msgs; then
           (echo -n "::error::";
            echo "Some commit message summary lines are too long. See CONTRIBUTING.md for more information.";
            echo "Invalid commits:";
            echo;
-           grep '.\{73\}' commit_msgs;) | tr '\n' '\001' | sed -e 's#\x01#%0A#g';
+           grep '.\{66\}' commit_msgs;) | tr '\n' '\001' | sed -e 's#\x01#%0A#g';
           exit 1;
         fi
     - name: Check commit messages (Push)
       if: ${{ github.event_name == 'push' }}
       run: |
-        git log --oneline > a
-        grep -v 7a064ae a > b
-        head -n 100 b > commits
-        echo "Checking last 100 commits:"
+        # Only check commits in this push, not the full branch history.
+        BEFORE="${{ github.event.before }}"
+        AFTER="${{ github.sha }}"
+        if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+          # New branch: check commits since last upstream-sync merge.
+          BASE=$(git log --oneline --grep="chore(upstream-sync):" | head -1 | awk '{print $1}')
+          [ -z "$BASE" ] && BASE=$(git rev-list --max-parents=0 HEAD)
+          git log --oneline ${BASE}..HEAD > commits
+        else
+          git log --oneline ${BEFORE}..${AFTER} > commits
+        fi
+        echo "Checking pushed commits:"
         cat commits
         cut -d ' ' -f2- commits > commit_msgs
         echo ==================
-        if grep -q '.\{73\}' commit_msgs; then
+        if grep -q '.\{66\}' commit_msgs; then
           (echo -n "::error::";
            echo "Some commit message summary lines are too long. See CONTRIBUTING.md for more information.";
            echo "Invalid commits:";
            echo;
-           grep -q '.\{73\}' commit_msgs;) | tr '\n' '\001' | sed -e 's#\x01#%0A#g';
+           grep '.\{66\}' commit_msgs;) | tr '\n' '\001' | sed -e 's#\x01#%0A#g';
           exit 1;
         fi
   clang-format:

@@ -8,7 +8,7 @@ repos:
   - repo: local
     hooks:
       - id: commit-msg-length
-        name: Commit subject line max 72 characters
+        name: Commit subject line max 65 characters (72 after GitHub PR ref)
         language: system
         entry: bash util/check_commit_msg.sh
         stages: [commit-msg]
