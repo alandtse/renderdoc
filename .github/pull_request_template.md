@@ -9,6 +9,12 @@ declined upstream. See docs/CONTRIBUTING.md for the full upstream-first policy.
 
 Before submitting here, read:
 https://github.com/alandtse/renderdoc/blob/dev/docs/CONTRIBUTING.md
+
+Do not create "draft" pull requests. It is a pointless waste of time - if your
+code is ready to reviewed you can make a normal pull request. If your code is
+not ready to be reviewed you should not make a pull request yet.
+
+Draft pull requests will be closed immediately.
 -->
 
 ## Description

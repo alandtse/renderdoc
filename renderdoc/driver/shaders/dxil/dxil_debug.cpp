@@ -945,9 +945,18 @@ static bool ConvertDXILConstantToShaderValue(const DXIL::Constant *c, const size
   else if(c->isLiteral())
   {
     if(c->type->bitWidth == 64)
+    {
       value.u64v[index] = c->getU64();
+    }
+    else if(c->type->bitWidth == 1)
+    {
+      // Special case for 1-bit types : which should be bool's : debugger convention is true is 1, false is 0
+      value.u8v[0] = (c->getU32() != 0) ? 1 : 0;
+    }
     else
+    {
       value.u32v[index] = c->getU32();
+    }
     return true;
   }
   else if(c->isNULL())
@@ -6329,7 +6338,20 @@ bool ThreadState::GetShaderVariableHelper(const DXIL::Value *dxilValue, DXIL::Op
     }
     else if(c->isLiteral())
     {
-      var.value.u64v[0] = c->getU64();
+      if(c->type->bitWidth == 64)
+      {
+        var.value.u64v[0] = c->getU64();
+      }
+      else if(c->type->bitWidth == 1)
+      {
+        // Special case for 1-bit types : which should be bool's : debugger convention is true is 1, false is 0
+        RDCASSERTEQUAL(var.type, VarType::Bool);
+        var.value.u8v[0] = (c->getU32() != 0) ? 1 : 0;
+      }
+      else
+      {
+        var.value.u32v[0] = c->getU32();
+      }
       return true;
     }
     else if(c->isNULL())
