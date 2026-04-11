@@ -23,6 +23,10 @@
  ******************************************************************************/
 
 #include "APIInspector.h"
+#include <QApplication>
+#include <QClipboard>
+#include <QKeyEvent>
+#include <QMenu>
 #include "ui_APIInspector.h"
 
 APIInspector::APIInspector(ICaptureContext &ctx, QWidget *parent)
@@ -38,6 +42,21 @@ APIInspector::APIInspector(ICaptureContext &ctx, QWidget *parent)
 
   ui->callstack->setFont(Formatter::PreferredFont());
   ui->apiEvents->setFont(Formatter::PreferredFont());
+
+  ui->callstack->setContextMenuPolicy(Qt::CustomContextMenu);
+  QObject::connect(ui->callstack, &QWidget::customContextMenuRequested, this,
+                   &APIInspector::callstack_contextMenu);
+
+  ui->callstack->setCustomCopyPasteHandler(true);
+  QObject::connect(ui->callstack, &RDListWidget::keyPress, [this](QKeyEvent *event) {
+    if(!event->matches(QKeySequence::Copy))
+      return;
+    QListWidgetItem *item = ui->callstack->currentItem();
+    if(!item)
+      return;
+    QString addrStr = callstackAddrSuffix(item->text());
+    QApplication::clipboard()->setText(addrStr.isEmpty() ? item->text() : addrStr);
+  });
 
   RDSplitterHandle *handle = (RDSplitterHandle *)ui->splitter->handle(1);
   handle->setTitle(tr("Callstack"));
@@ -158,6 +177,60 @@ void APIInspector::addCallstack(rdcarray<rdcstr> calls)
       ui->callstack->addItem(s);
   }
   ui->callstack->setUpdatesEnabled(true);
+}
+
+QString APIInspector::callstackAddrSuffix(const QString &frameText)
+{
+  // format is "  [RVA:0x...]" or "  [VA:0x...]"
+  int rvaIdx = frameText.indexOf(lit("  [RVA:0x"));
+  int vaIdx = frameText.indexOf(lit("  [VA:0x"));
+  int idx = (rvaIdx >= 0) ? rvaIdx : vaIdx;
+  if(idx < 0)
+    return QString();
+  int start = frameText.indexOf(lit("0x"), idx) + 2;
+  int end = frameText.indexOf(QLatin1Char(']'), start);
+  if(start >= 2 && end > start)
+    return lit("0x") + frameText.mid(start, end - start);
+  return QString();
+}
+
+void APIInspector::callstack_contextMenu(const QPoint &pos)
+{
+  QListWidgetItem *item = ui->callstack->itemAt(pos);
+
+  QMenu contextMenu(this);
+
+  QAction *copyFrame = contextMenu.addAction(tr("Copy frame"));
+  copyFrame->setEnabled(item != NULL);
+
+  QAction *copyAll = contextMenu.addAction(tr("Copy all frames"));
+  copyAll->setEnabled(ui->callstack->count() > 0);
+
+  QString addrSuffix = item ? callstackAddrSuffix(item->text()) : QString();
+
+  QString addrLabel =
+      (item && item->text().contains(lit("RVA:"))) ? tr("Copy RVA") : tr("Copy address");
+  QAction *copyAddr = contextMenu.addAction(addrLabel);
+  copyAddr->setEnabled(!addrSuffix.isEmpty());
+
+  QObject::connect(copyFrame, &QAction::triggered,
+                   [item]() { QApplication::clipboard()->setText(item->text()); });
+
+  QObject::connect(copyAll, &QAction::triggered, [this]() {
+    QString text;
+    for(int i = 0; i < ui->callstack->count(); i++)
+    {
+      if(i > 0)
+        text += lit("\n");
+      text += ui->callstack->item(i)->text();
+    }
+    QApplication::clipboard()->setText(text);
+  });
+
+  QObject::connect(copyAddr, &QAction::triggered,
+                   [addrSuffix]() { QApplication::clipboard()->setText(addrSuffix); });
+
+  RDDialog::show(&contextMenu, ui->callstack->viewport()->mapToGlobal(pos));
 }
 
 void APIInspector::on_apiEvents_itemSelectionChanged()

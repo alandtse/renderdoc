@@ -56,6 +56,7 @@ struct AddrInfo
   rdcstr funcName;
   rdcstr fileName;
   unsigned long lineNum = 0;
+  uint64_t funcOffset = 0;
 };
 
 typedef BOOL(CALLBACK *PSYM_ENUMMODULES_CALLBACK64W)(__in PCWSTR ModuleName, __in DWORD64 BaseOfDll,
@@ -379,6 +380,11 @@ AddrInfo GetAddr(uint32_t module, uint64_t addr)
         ret.funcName.push_back(')');
       }
     }
+
+    // compute byte offset of addr from the start of this function
+    ULONGLONG funcVA = 0;
+    if(SUCCEEDED(pFunc->get_virtualAddress(&funcVA)) && funcVA > 0 && addr >= funcVA)
+      ret.funcOffset = addr - funcVA;
 
     pFunc->Release();
     pFunc = NULL;
@@ -1137,12 +1143,16 @@ Callstack::AddressDetails Win32CallstackResolver::GetAddr(DWORD64 addr)
   info.fileName = "Unknown";
   info.funcName = StringFormat::Fmt("0x%08llx", addr);
 
+  DWORD64 moduleBase = 0;
+
   for(size_t i = 0; i < modules.size(); i++)
   {
     DWORD64 base = modules[i].base;
     DWORD size = modules[i].size;
     if(addr > base && addr < base + size)
     {
+      moduleBase = base;
+
       if(modules[i].moduleId != 0)
         info = DIA2::GetAddr(modules[i].moduleId, addr);
 
@@ -1170,6 +1180,11 @@ Callstack::AddressDetails Win32CallstackResolver::GetAddr(DWORD64 addr)
 
         info.funcName = StringFormat::Fmt("%s+0x%08llx", info.funcName.c_str(), addr - base);
       }
+      else if(info.funcOffset > 0)
+      {
+        // append intra-function offset so RE tools can navigate to the exact instruction
+        info.funcName += StringFormat::Fmt("+0x%llx", info.funcOffset);
+      }
 
       break;
     }
@@ -1179,6 +1194,8 @@ Callstack::AddressDetails Win32CallstackResolver::GetAddr(DWORD64 addr)
   ret.filename = info.fileName;
   ret.function = info.funcName;
   ret.line = info.lineNum;
+  ret.addr = addr;
+  ret.moduleBase = moduleBase;
 
   return ret;
 }

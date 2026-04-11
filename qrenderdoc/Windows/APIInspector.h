@@ -54,6 +54,7 @@ public:
   void OnEventChanged(uint32_t eventId) override {}
 public slots:
   void on_apiEvents_itemSelectionChanged();
+  void callstack_contextMenu(const QPoint &pos);
 
 private:
   Ui::APIInspector *ui;
@@ -66,4 +67,5 @@ private:
   void addCallstack(rdcarray<rdcstr> calls);
   void fillAPIView();
   void addEvent(const APIEvent &ev, bool primary);
+  static QString callstackAddrSuffix(const QString &frameText);
 };
