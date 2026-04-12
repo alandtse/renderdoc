@@ -258,7 +258,8 @@ SOURCES += Code/qrenderdoc.cpp \
     Windows/Dialogs/AnalyticsPromptDialog.cpp \
     Windows/Dialogs/AxisMappingDialog.cpp \
     Windows/Dialogs/CameraControlsDialog.cpp \
-    Windows/Dialogs/ProjectionGuessDialog.cpp
+    Windows/Dialogs/ProjectionGuessDialog.cpp \
+    Windows/Dialogs/SymbolManagerDialog.cpp
 HEADERS += Code/CaptureContext.h \
     Code/qprocessinfo.h \
     Code/ReplayManager.h \
@@ -351,7 +352,8 @@ HEADERS += Code/CaptureContext.h \
     Windows/Dialogs/AnalyticsPromptDialog.h \
     Windows/Dialogs/AxisMappingDialog.h \
     Windows/Dialogs/CameraControlsDialog.h \
-    Windows/Dialogs/ProjectionGuessDialog.h
+    Windows/Dialogs/ProjectionGuessDialog.h \
+    Windows/Dialogs/SymbolManagerDialog.h
 FORMS    += Windows/Dialogs/AboutDialog.ui \
     Windows/Dialogs/CrashDialog.ui \
     Windows/Dialogs/UpdateDialog.ui \

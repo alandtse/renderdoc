@@ -445,6 +445,7 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
   ui->action_Create_RGP_Profile->setEnabled(false);
   ui->action_Resolve_Symbols->setEnabled(false);
   ui->action_Resolve_Symbols->setText(tr("Resolve Symbols"));
+  ui->action_Symbol_Manager->setEnabled(false);
 
   ui->action_Recompress_Capture->setEnabled(false);
   ui->action_EmbedExternalFiles->setEnabled(false);
@@ -2262,6 +2263,7 @@ void MainWindow::OnCaptureLoaded()
   setCaptureHasErrors(!m_Ctx.DebugMessages().empty());
 
   ui->action_Resolve_Symbols->setEnabled(false);
+  ui->action_Symbol_Manager->setEnabled(false);
 
   m_Ctx.Replay().AsyncInvoke([this](IReplayController *) {
     bool hasResolver = m_Ctx.Replay().GetCaptureAccess()->HasCallstacks();
@@ -2309,6 +2311,7 @@ void MainWindow::OnCaptureClosed()
 
   ui->action_Resolve_Symbols->setEnabled(false);
   ui->action_Resolve_Symbols->setText(tr("Resolve Symbols"));
+  ui->action_Symbol_Manager->setEnabled(false);
 
   ui->action_Recompress_Capture->setEnabled(false);
   ui->action_EmbedExternalFiles->setEnabled(false);
@@ -2688,8 +2691,24 @@ void MainWindow::on_action_Resolve_Symbols_triggered()
       this, tr("Resolving symbols, please wait..."), [&finished]() { return finished; },
       [&progress]() { return progress; });
 
+  // Enable Symbol Manager menu item and refresh any open panel
+  ui->action_Symbol_Manager->setEnabled(true);
+
   if(m_Ctx.HasAPIInspector())
     m_Ctx.GetAPIInspector()->Refresh();
+
+  if(m_Ctx.HasSymbolManager())
+    m_Ctx.GetSymbolManager()->Refresh();
+}
+
+void MainWindow::on_action_Symbol_Manager_triggered()
+{
+  QWidget *symMgr = m_Ctx.GetSymbolManager()->Widget();
+
+  if(ui->toolWindowManager->toolWindows().contains(symMgr))
+    ToolWindowManager::raiseToolWindow(symMgr);
+  else
+    ui->toolWindowManager->addToolWindow(symMgr, mainToolArea());
 }
 
 void MainWindow::on_action_Recompress_Capture_triggered()

@@ -504,6 +504,31 @@ protected:
 
 DECLARE_REFLECTION_STRUCT(IAPIInspector);
 
+DOCUMENT(R"(The Symbol Manager window.
+
+This window is retrieved by calling :meth:`CaptureContext.GetSymbolManager`.
+)");
+struct ISymbolManager
+{
+  DOCUMENT(R"(Retrieves the PySide2 QWidget for this :class:`SymbolManager` if PySide2 is available,
+or otherwise returns a unique opaque pointer that can be passed back to any RenderDoc functions
+expecting a QWidget.
+
+:return: Return the widget handle, either a PySide2 handle or an opaque handle.
+:rtype: QWidget
+)");
+  virtual QWidget *Widget() = 0;
+
+  DOCUMENT("Refresh the module status list.");
+  virtual void Refresh() = 0;
+
+protected:
+  ISymbolManager() = default;
+  ~ISymbolManager() = default;
+};
+
+DECLARE_REFLECTION_STRUCT(ISymbolManager);
+
 DOCUMENT(R"(The annotation viewer window.
 
 This window is retrieved by calling :meth:`CaptureContext.GetAnnotationViewer`.
@@ -2736,6 +2761,13 @@ on the UI thread.
 )");
   virtual IAPIInspector *GetAPIInspector() = 0;
 
+  DOCUMENT(R"(Retrieve the current singleton :class:`SymbolManager`.
+
+:return: The current window, which is created (but not shown) if there wasn't one open.
+:rtype: SymbolManager
+)");
+  virtual ISymbolManager *GetSymbolManager() = 0;
+
   DOCUMENT(R"(Retrieve the current singleton :class:`AnnotationViewer`.
 
 :return: The current window, which is created (but not shown) it there wasn't one open.
@@ -2840,6 +2872,13 @@ on the UI thread.
 :rtype: bool
 )");
   virtual bool HasAPIInspector() = 0;
+
+  DOCUMENT(R"(Check if there is a current :class:`SymbolManager` open.
+
+:return: ``True`` if there is a window open.
+:rtype: bool
+)");
+  virtual bool HasSymbolManager() = 0;
 
   DOCUMENT(R"(Check if there is a current :class:`AnnotationViewer` open.
 

@@ -50,6 +50,7 @@
      <string>&amp;Tools</string>
     </property>
     <addaction name="action_Resolve_Symbols"/>
+    <addaction name="action_Symbol_Manager"/>
     <addaction name="action_Recompress_Capture"/>
     <addaction name="action_EmbedExternalFiles"/>
     <addaction name="action_RemoveExternalFiles"/>
@@ -366,6 +367,11 @@
   <action name="action_Resolve_Symbols">
    <property name="text">
     <string>&amp;Resolve Symbols</string>
+   </property>
+  </action>
+  <action name="action_Symbol_Manager">
+   <property name="text">
+    <string>Symbol &amp;Manager...</string>
    </property>
   </action>
   <action name="action_Settings">

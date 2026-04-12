@@ -279,6 +279,7 @@ TEMPLATE_FIXEDARRAY_DECLARE(rdcfixedarray);
 %include <stdint.i>
 
 %include "apidefs.h"
+%include "callstack_types.h"
 %include "renderdoc_replay.h"
 %include "resourceid.h"
 %include "rdcarray.h"
@@ -438,6 +439,7 @@ TEMPLATE_ARRAY_INSTANTIATE(rdcarray, VertexInputAttribute)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, FloatVector)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, GraphicsAPI)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, GPUDevice)
+TEMPLATE_ARRAY_INSTANTIATE(rdcarray, ModuleStatus)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, ShaderConstantType)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, ShaderChangeStats)
 TEMPLATE_ARRAY_INSTANTIATE(rdcarray, ResourceBindStats)

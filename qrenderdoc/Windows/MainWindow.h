@@ -169,6 +169,7 @@ private slots:
   void on_action_Python_Shell_triggered();
   void on_action_Inject_into_Process_triggered();
   void on_action_Resolve_Symbols_triggered();
+  void on_action_Symbol_Manager_triggered();
   void on_action_Recompress_Capture_triggered();
   void on_action_EmbedExternalFiles_triggered();
   void on_action_RemoveExternalFiles_triggered();

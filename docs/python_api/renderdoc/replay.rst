@@ -31,6 +31,13 @@ Capture File Access
 .. autoclass:: renderdoc.CaptureAccess
   :members:
 
+.. autoclass:: renderdoc.PDBStatus
+  :members:
+  :exclude-members: enum_constants__,
+
+.. autoclass:: renderdoc.ModuleStatus
+  :members:
+
 .. autoclass:: renderdoc.CaptureFile
   :members:
 

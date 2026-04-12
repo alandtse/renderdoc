@@ -671,6 +671,10 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
   {
     return InvokeRetFunction<IAPIInspector *>(&ICaptureContext::GetAPIInspector);
   }
+  virtual ISymbolManager *GetSymbolManager() override
+  {
+    return InvokeRetFunction<ISymbolManager *>(&ICaptureContext::GetSymbolManager);
+  }
   virtual IAnnotationViewer *GetAnnotationViewer() override
   {
     return InvokeRetFunction<IAnnotationViewer *>(&ICaptureContext::GetAnnotationViewer);
@@ -739,6 +743,10 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
   virtual bool HasAPIInspector() override
   {
     return InvokeRetFunction<bool>(&ICaptureContext::HasAPIInspector);
+  }
+  virtual bool HasSymbolManager() override
+  {
+    return InvokeRetFunction<bool>(&ICaptureContext::HasSymbolManager);
   }
   virtual bool HasAnnotationViewer() override
   {

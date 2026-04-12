@@ -230,7 +230,49 @@ HRESULT MakeDiaDataSource(IDiaDataSource **source)
   return S_OK;
 }
 
-uint32_t GetModule(const rdcwstr &pdbName, GUID guid, DWORD age)
+// Decode a DIA/PDB HRESULT into a human-readable string that includes the technical code.
+rdcstr DIA_ErrorString(HRESULT hr)
+{
+  // Well-known DIA SDK error codes (msdiaXXX.h / PDB API)
+  switch((DWORD)hr)
+  {
+    case 0x806D0001: return "Unexpected internal error (E_PDB_USAGE)";
+    case 0x806D0002: return "Out of memory (E_PDB_OUT_OF_MEMORY)";
+    case 0x806D0004: return "Invalid or corrupt PDB file (E_PDB_FORMAT)";
+    case 0x806D0005: return "PDB file not found at the expected path (E_PDB_NOT_FOUND)";
+    case 0x806D0006:
+      return "GUID/signature mismatch - PDB is from a different build (E_PDB_INVALID_SIG)";
+    case 0x806D0007:
+      return "Age mismatch - PDB does not match this binary version (E_PDB_INVALID_AGE)";
+    case 0x806D000C: return "Pre-compiled type info mismatch (E_PDB_PRECOMP_REQUIRED)";
+    case 0x806D000E: return "PDB is out of date (E_PDB_OUT_OF_TI)";
+    case 0x806D0010: return "PDB element already exists (E_PDB_ALREADY_ADDED)";
+    case 0x806D0011: return "Unknown symbol type (E_PDB_UNKNOWN_SYMBOL)";
+    case 0x806D0012: return "Read access denied for PDB file (E_PDB_ACCESS_DENIED)";
+    case 0x806D0013: return "Illegal type edit (E_PDB_ILLEGAL_TYPE_EDIT)";
+    case 0x806D0014: return "Invalid type data (E_PDB_INVALID_EXECUTABLE)";
+    case 0x806D0015: return "DBG file not found (E_PDB_DBG_NOT_FOUND)";
+    case 0x806D0016: return "No debug info in this binary (E_PDB_NO_DEBUG_INFO)";
+    case 0x806D0017: return "Invalid file system type (E_PDB_INVALID_EXE_TIMESTAMP)";
+    case 0x806D0018: return "Reserved (E_PDB_RESERVED)";
+    case 0x806D0019: return "Debug type not found (E_PDB_DEBUG_INFO_NOT_IN_PDB)";
+    case 0x806D001A: return "Corrupt symbol index (E_PDB_CORRUPT)";
+    case 0x806D001B: return "Too many modules in one PDB (E_PDB_TOO_BIG)";
+    default: break;
+  }
+  // Fall back to a generic Windows FormatMessage for standard HRESULT codes
+  char buf[512] = {};
+  FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, hr,
+                 MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), buf, sizeof(buf) - 1, NULL);
+  // Strip trailing newline that FormatMessage appends
+  for(int i = (int)strlen(buf) - 1; i >= 0 && (buf[i] == '\n' || buf[i] == '\r'); i--)
+    buf[i] = '\0';
+  if(buf[0])
+    return StringFormat::Fmt("DIA error 0x%08X: %s", (unsigned)hr, buf);
+  return StringFormat::Fmt("DIA error 0x%08X", (unsigned)hr);
+}
+
+uint32_t GetModule(const rdcwstr &pdbName, GUID guid, DWORD age, HRESULT *outHr = NULL)
 {
   Module m(NULL, NULL);
 
@@ -247,6 +289,8 @@ uint32_t GetModule(const rdcwstr &pdbName, GUID guid, DWORD age)
 
   if(FAILED(hr))
   {
+    if(outHr)
+      *outHr = hr;
     if(m.pdbCopyPath.c_str() != NULL)
       DeleteFileW(m.pdbCopyPath.c_str());
     return 0;
@@ -268,17 +312,23 @@ uint32_t GetModule(const rdcwstr &pdbName, GUID guid, DWORD age)
     hr = m.pSource->openSession(&m.pSession);
     if(FAILED(hr))
     {
+      if(outHr)
+        *outHr = hr;
       SAFE_RELEASE(m.pSource);
       if(m.pdbCopyPath.c_str() != NULL)
         DeleteFileW(m.pdbCopyPath.c_str());
       return 0;
     }
 
+    if(outHr)
+      *outHr = S_OK;
     modules.push_back(m);
 
     return uint32_t(modules.size());
   }
 
+  if(outHr)
+    *outHr = hr;
   SAFE_RELEASE(m.pSource);
 
   if(m.pdbCopyPath.c_str() != NULL)
@@ -491,9 +541,14 @@ public:
   ~Win32CallstackResolver();
 
   Callstack::AddressDetails GetAddr(uint64_t addr);
+  rdcarray<Callstack::ModuleStatus> GetModuleStatuses();
+  bool ForceLoadPDB(const rdcstr &moduleName, const rdcstr &pdbPath);
+  bool RemoveIgnore(const rdcstr &moduleName);
+  bool AddIgnore(const rdcstr &moduleName);
 
 private:
   rdcstr pdbBrowse(rdcstr startingPoint);
+  void PersistIgnoreList();
 
   struct Module
   {
@@ -502,6 +557,10 @@ private:
     DWORD size;
 
     uint32_t moduleId;
+
+    Callstack::PDBStatus pdbStatus = Callstack::PDBStatus::Unknown;
+    rdcstr pdbPath;         // path where PDB was found (or last path attempted)
+    rdcstr statusReason;    // human-readable detail
   };
 
   rdcarray<rdcstr> pdbRememberedPaths;
@@ -956,6 +1015,7 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
     m.base = chunk->base;
     m.size = chunk->size;
     m.moduleId = 0;
+    m.pdbStatus = Callstack::PDBStatus::Unknown;
 
     // get default pdb (this also looks up symbol server etc)
     // Always done in unicode
@@ -992,45 +1052,20 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
 
     rdcstr pdbName = defaultPdb;
 
-    bool ignored = pdbIgnores.contains(m.name);
-    bool allowManualSearch = interactive && !ignored;
-    bool ignoredHasPdb = false;
-
-    if(ignored)
+    if(pdbIgnores.contains(m.name))
     {
-      if(defaultPdb != "" && FileIO::exists(defaultPdb))
-      {
-        ignoredHasPdb = true;
-      }
-      else
-      {
-        rdcstr baseName = get_basename(defaultPdb);
-        if(baseName == "")
-          baseName = get_basename(m.name);
-
-        for(size_t pathIdx = 0; pathIdx < pdbRememberedPaths.size(); pathIdx++)
-        {
-          rdcstr check = pdbRememberedPaths[pathIdx] + "\\" + baseName;
-          if(FileIO::exists(check))
-          {
-            pdbName = check;
-            ignoredHasPdb = true;
-            failed = false;
-            break;
-          }
-        }
-      }
-
-      if(!ignoredHasPdb)
-      {
-        RDCWARN("Not attempting to get symbols for %s", m.name.c_str());
-
-        modules.push_back(m);
-        continue;
-      }
+      RDCWARN("Not attempting to get symbols for %s", m.name.c_str());
+      m.pdbStatus = Callstack::PDBStatus::Ignored;
+      m.statusReason = "Module is in the user ignore list";
+      modules.push_back(m);
+      continue;
     }
 
+    bool allowManualSearch = interactive;
+
     int fallbackIdx = -1;
+    HRESULT lastDiaHr = S_OK;
+    bool pdbAttempted = false;    // true once DIA2::GetModule is called with a non-empty path
 
     while(m.moduleId == 0)
     {
@@ -1062,10 +1097,13 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
         failed = false;
       }
 
-      m.moduleId = DIA2::GetModule(StringFormat::UTF82Wide(pdbName), chunk->guid, chunk->age);
+      HRESULT diaHr = S_OK;
+      pdbAttempted = true;
+      m.moduleId = DIA2::GetModule(StringFormat::UTF82Wide(pdbName), chunk->guid, chunk->age, &diaHr);
 
       if(m.moduleId == 0)
       {
+        lastDiaHr = diaHr;
         if(!allowManualSearch && fallbackIdx >= (int)pdbRememberedPaths.size())
           break;
 
@@ -1085,17 +1123,36 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
     // didn't load the pdb? go to the next module.
     if(m.moduleId == 0)
     {
-      modules.push_back(m);    // still add the module, with 0 module id
-
       RDCWARN("Couldn't get symbols for %s", m.name.c_str());
 
       // silently ignore renderdoc.dll, dbghelp.dll, and symsrv.dll without asking to permanently
       // ignore
       if(m.name.contains("renderdoc.") || m.name.contains("dbghelp.") || m.name.contains("symsrv."))
+      {
+        m.pdbStatus = Callstack::PDBStatus::Skipped;
+        m.statusReason = "Internal module (renderdoc/dbghelp/symsrv) - skipped automatically";
+        modules.push_back(m);
         continue;
+      }
 
-      // if we're not interactive or this module was already ignored, just continue
-      if(!interactive || ignored)
+      // record why we failed — distinguish "never found a candidate" from "found but bad GUID/age"
+      m.pdbPath = pdbName;
+      if(!pdbAttempted)
+      {
+        m.pdbStatus = Callstack::PDBStatus::NotFound;
+        m.statusReason =
+            StringFormat::Fmt("PDB not found in symbol path or symbol server (expected: %s)",
+                              get_basename(pdbName).c_str());
+      }
+      else
+      {
+        m.pdbStatus = Callstack::PDBStatus::Failed;
+        m.statusReason = StringFormat::Fmt("PDB found at '%s' but failed to load: %s",
+                                           pdbName.c_str(), DIA2::DIA_ErrorString(lastDiaHr).c_str());
+      }
+      modules.push_back(m);
+
+      if(!interactive)
         continue;
 
       rdcstr text = StringFormat::Fmt("Do you want to permanently ignore this file?\nPath: %s",
@@ -1116,24 +1173,156 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
 
     RDCLOG("Loaded Symbols for %s", m.name.c_str());
 
+    m.pdbStatus = Callstack::PDBStatus::Loaded;
+    m.pdbPath = pdbName;
+    m.statusReason = StringFormat::Fmt("Loaded from '%s'", pdbName.c_str());
     modules.push_back(m);
   }
 
-  SDObject *ignoreList = RenderDoc::Inst().SetConfigSetting("Win32.Callstacks.IgnoreList");
-  ignoreList->DeleteChildren();
-  ignoreList->ReserveChildren(pdbIgnores.size());
-  for(rdcstr &i : pdbIgnores)
-    ignoreList->AddAndOwnChild(makeSDString("$el"_lit, i));
   RenderDoc::Inst().SetConfigSetting("Win32.Callstacks.MSDIAPath")->data.str =
       StringFormat::Wide2UTF8(DIA2::msdiapath);
-
-  RENDERDOC_SaveConfigSettings();
+  PersistIgnoreList();
 }
 
 Win32CallstackResolver::~Win32CallstackResolver()
 {
   for(size_t i = 0; i < modules.size(); i++)
     DIA2::Release(modules[i].moduleId);
+}
+
+void Win32CallstackResolver::PersistIgnoreList()
+{
+  SDObject *ignoreList = RenderDoc::Inst().SetConfigSetting("Win32.Callstacks.IgnoreList");
+  ignoreList->DeleteChildren();
+  ignoreList->ReserveChildren(pdbIgnores.size());
+  for(rdcstr &i : pdbIgnores)
+    ignoreList->AddAndOwnChild(makeSDString("$el"_lit, i));
+  RENDERDOC_SaveConfigSettings();
+}
+
+rdcarray<Callstack::ModuleStatus> Win32CallstackResolver::GetModuleStatuses()
+{
+  rdcarray<Callstack::ModuleStatus> ret;
+  ret.reserve(modules.size());
+  for(size_t i = 0; i < modules.size(); i++)
+  {
+    Callstack::ModuleStatus s;
+    s.moduleName = modules[i].name;
+    s.pdbPath = modules[i].pdbPath;
+    s.status = modules[i].pdbStatus;
+    s.statusReason = modules[i].statusReason;
+    ret.push_back(s);
+  }
+  return ret;
+}
+
+bool Win32CallstackResolver::ForceLoadPDB(const rdcstr &moduleName, const rdcstr &pdbPath)
+{
+  for(size_t i = 0; i < modules.size(); i++)
+  {
+    if(modules[i].name != moduleName)
+      continue;
+
+    // release any existing PDB for this module
+    if(modules[i].moduleId != 0)
+    {
+      DIA2::Release(modules[i].moduleId);
+      modules[i].moduleId = 0;
+    }
+
+    // attempt to load the user-specified PDB (no GUID/age validation — force load)
+    GUID emptyGuid = {};
+    HRESULT diaHr = S_OK;
+    uint32_t newId = DIA2::GetModule(StringFormat::UTF82Wide(pdbPath), emptyGuid, 0, &diaHr);
+
+    if(newId == 0)
+    {
+      modules[i].pdbPath = pdbPath;
+      modules[i].pdbStatus = Callstack::PDBStatus::Failed;
+      modules[i].statusReason = StringFormat::Fmt("Force load failed for '%s': %s", pdbPath.c_str(),
+                                                  DIA2::DIA_ErrorString(diaHr).c_str());
+      RDCWARN("ForceLoadPDB failed for %s (path: %s): 0x%08X", moduleName.c_str(), pdbPath.c_str(),
+              (unsigned)diaHr);
+      return false;
+    }
+
+    DIA2::SetBaseAddress(newId, modules[i].base);
+    modules[i].moduleId = newId;
+    modules[i].pdbPath = pdbPath;
+    modules[i].pdbStatus = Callstack::PDBStatus::ForceLoaded;
+    modules[i].statusReason = StringFormat::Fmt("Force loaded from '%s'", pdbPath.c_str());
+
+    // if this module was previously ignored, remove it from the ignore list
+    int32_t ignoreIdx = pdbIgnores.indexOf(moduleName);
+    if(ignoreIdx >= 0)
+    {
+      pdbIgnores.erase(ignoreIdx);
+      PersistIgnoreList();
+    }
+
+    // remember the directory so future modules can also search here
+    rdcstr dir = get_dirname(pdbPath);
+    if(!pdbRememberedPaths.contains(dir))
+      pdbRememberedPaths.push_back(dir);
+
+    RDCLOG("ForceLoadPDB: loaded symbols for %s from %s", moduleName.c_str(), pdbPath.c_str());
+    return true;
+  }
+
+  RDCWARN("ForceLoadPDB: module '%s' not found in resolver", moduleName.c_str());
+  return false;
+}
+
+bool Win32CallstackResolver::RemoveIgnore(const rdcstr &moduleName)
+{
+  int32_t idx = pdbIgnores.indexOf(moduleName);
+  if(idx < 0)
+    return false;
+
+  pdbIgnores.erase(idx);
+  PersistIgnoreList();
+
+  // mark the module NotFound so the caller can re-attempt a manual load
+  for(size_t i = 0; i < modules.size(); i++)
+  {
+    if(modules[i].name == moduleName && modules[i].pdbStatus == Callstack::PDBStatus::Ignored)
+    {
+      modules[i].pdbStatus = Callstack::PDBStatus::NotFound;
+      modules[i].statusReason = "Removed from ignore list; use Load PDB... to load symbols";
+      break;
+    }
+  }
+
+  RDCLOG("RemoveIgnore: '%s' removed from ignore list", moduleName.c_str());
+  return true;
+}
+
+bool Win32CallstackResolver::AddIgnore(const rdcstr &moduleName)
+{
+  if(pdbIgnores.contains(moduleName))
+    return false;    // already ignored — not an error, just idempotent
+
+  pdbIgnores.push_back(moduleName);
+  PersistIgnoreList();
+
+  // release any loaded PDB for this module and mark it ignored
+  for(size_t i = 0; i < modules.size(); i++)
+  {
+    if(modules[i].name == moduleName)
+    {
+      if(modules[i].moduleId != 0)
+      {
+        DIA2::Release(modules[i].moduleId);
+        modules[i].moduleId = 0;
+      }
+      modules[i].pdbStatus = Callstack::PDBStatus::Ignored;
+      modules[i].statusReason = "Module added to user ignore list";
+      break;
+    }
+  }
+
+  RDCLOG("AddIgnore: '%s' added to ignore list", moduleName.c_str());
+  return true;
 }
 
 Callstack::AddressDetails Win32CallstackResolver::GetAddr(DWORD64 addr)
