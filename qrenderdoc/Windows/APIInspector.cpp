@@ -187,9 +187,12 @@ QString APIInspector::callstackAddrSuffix(const QString &frameText)
   int idx = (rvaIdx >= 0) ? rvaIdx : vaIdx;
   if(idx < 0)
     return QString();
-  int start = frameText.indexOf(lit("0x"), idx) + 2;
+  int oxIdx = frameText.indexOf(lit("0x"), idx);
+  if(oxIdx < 0)
+    return QString();
+  int start = oxIdx + 2;
   int end = frameText.indexOf(QLatin1Char(']'), start);
-  if(start >= 2 && end > start)
+  if(end > start)
     return lit("0x") + frameText.mid(start, end - start);
   return QString();
 }
