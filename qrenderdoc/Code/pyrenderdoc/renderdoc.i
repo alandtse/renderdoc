@@ -279,6 +279,7 @@ TEMPLATE_FIXEDARRAY_DECLARE(rdcfixedarray);
 %include <stdint.i>
 
 %include "apidefs.h"
+%include "callstack_types.h"
 %include "renderdoc_replay.h"
 %include "resourceid.h"
 %include "rdcarray.h"
