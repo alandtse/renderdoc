@@ -11,6 +11,35 @@ Include the branch or commit where the feature landed.
 
 ## Active Features
 
+### Callstack: Function Offset and RVA in API Inspector
+
+Resolved callstack frames in the API Inspector now include the intra-function byte
+offset and a module-relative RVA (or absolute VA fallback), making frames directly
+usable in RE tools such as Ghidra without manual arithmetic.
+
+**Display format:**
+- PDB-resolved: `MyFunc+0x18 line 42  [RVA:0x12ab34]`
+- Unresolved (module only): `d3d11.dll+0x0012ab34` (unchanged — already RVA-relative)
+- No module info: `0x00007fff1234abcd  [VA:0x00007fff1234abcd]`
+
+The RVA is `addr − module_load_base`; in Ghidra (which loads at the PE's preferred
+`ImageBase`) the Go To address is `ImageBase + RVA`.
+
+**Callstack panel UX:**
+- **Ctrl+C** on a selected frame copies the `0x…` address suffix (RVA when available,
+  VA otherwise); falls back to the full frame text when no suffix is present.
+- **Right-click** → *Copy frame* / *Copy all frames* / *Copy RVA* (or *Copy address*).
+
+**Changes:**
+- `Callstack::AddressDetails` gains `addr` and `moduleBase` fields (backend only; flows
+  into `ICaptureAccess::GetResolve()` strings already accessible from Python).
+- `DIA2::GetAddr` queries `IDiaSymbol::get_virtualAddress` to compute the intra-function
+  offset; `Win32CallstackResolver::GetAddr` appends it and stores the module base.
+- Linux resolver stores `addr` and `moduleBase` from the matched module entry.
+- `GL_Callstacks` test updated to parse just the numeric portion of the line-number field.
+
+---
+
 ### VR SBS "Jump to Other Eye" Pixel Navigation
 
 In VR captures that render both eyes side-by-side into a single texture (left eye in
