@@ -215,11 +215,13 @@ private:
     ret.filename = "Unknown";
     ret.line = 0;
     ret.function = StringFormat::Fmt("0x%08llx", addr);
+    ret.addr = addr;
 
     for(size_t i = 0; i < m_Modules.size(); i++)
     {
       if(addr >= m_Modules[i].base && addr < m_Modules[i].end)
       {
+        ret.moduleBase = m_Modules[i].base;
         RDCLOG("%llx relative to module %llx-%llx, with offset %llx", addr, m_Modules[i].base,
                m_Modules[i].end, m_Modules[i].offset);
         uint64_t relative = addr - m_Modules[i].base + m_Modules[i].offset;

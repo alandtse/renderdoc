@@ -140,10 +140,21 @@ rdcstr Callstack::AddressDetails::formattedString(const rdcstr &commonPath)
     }
   }
 
+  rdcstr result;
   if(line > 0)
-    return StringFormat::Fmt("%s line %d", function.c_str(), line);
+    result = StringFormat::Fmt("%s line %d", function.c_str(), line);
   else
-    return function;
+    result = function;
+
+  // append an address suffix useful for RE tools (e.g. Ghidra Go To).
+  // prefer the module-relative RVA since it works regardless of ASLR; fall back to the
+  // absolute VA when the module base is unknown.
+  if(addr != 0 && moduleBase != 0)
+    result += StringFormat::Fmt("  [RVA:0x%llx]", addr - moduleBase);
+  else if(addr != 0)
+    result += StringFormat::Fmt("  [VA:0x%016llx]", addr);
+
+  return result;
 }
 
 rdcstr OSUtility::MakeMachineIdentString(uint64_t ident)

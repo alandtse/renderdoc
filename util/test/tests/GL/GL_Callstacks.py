@@ -73,7 +73,8 @@ class GL_Callstacks(rdtest.TestCase):
                 raise rdtest.TestFailureException("Expected a line number in '{}'".format(stack))
 
             # allow line numbers reported to be off by 1 or 2, to allow for compiler differences.
-            line_diff = int(stack[idx+5:]) - expected_lines[i]
+            # split on whitespace to ignore any trailing address suffix (e.g. [RVA:0x...])
+            line_diff = int(stack[idx+5:].split()[0]) - expected_lines[i]
             if line_diff < 0 or line_diff > 2:
                 raise rdtest.TestFailureException("Expected line number around {} in '{}'".format(expected_lines[i], stack))
 

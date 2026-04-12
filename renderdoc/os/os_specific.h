@@ -262,10 +262,12 @@ public:
 
 struct AddressDetails
 {
-  AddressDetails() : line(0) {}
+  AddressDetails() : line(0), addr(0), moduleBase(0) {}
   rdcstr function;
   rdcstr filename;
   uint32_t line;
+  uint64_t addr;
+  uint64_t moduleBase;    // base VA of the containing module; rva = addr - moduleBase
 
   rdcstr formattedString(const rdcstr &commonPath = rdcstr());
 };
