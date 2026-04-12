@@ -95,16 +95,28 @@ struct ModuleStatus
     return false;
   }
 
-  DOCUMENT("The full path of the DLL or EXE as recorded in the capture.");
+  DOCUMENT(R"(The full path of the DLL or EXE as recorded in the capture.
+
+:type: str
+)");
   rdcstr moduleName;
 
-  DOCUMENT("The path from which the PDB was loaded, or the last path attempted if loading failed.");
+  DOCUMENT(R"(The path from which the PDB was loaded, or the last path attempted if loading failed.
+
+:type: str
+)");
   rdcstr pdbPath;
 
-  DOCUMENT("The load result for this module's symbols.");
+  DOCUMENT(R"(The load result for this module's symbols.
+
+:type: PDBStatus
+)");
   PDBStatus status = PDBStatus::Unknown;
 
-  DOCUMENT("Human-readable explanation of the status (searched paths, error detail, etc.).");
+  DOCUMENT(R"(Human-readable explanation of the status (searched paths, error detail, etc.).
+
+:type: str
+)");
   rdcstr statusReason;
 };
 
