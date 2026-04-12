@@ -28,7 +28,10 @@ jobs:
       if: ${{ github.event_name == 'pull_request' }}
       run: |
         # Only check commits introduced by this PR, not the base branch history.
-        git log --oneline origin/${{ github.base_ref }}..HEAD > commits
+        # Fetch the base ref explicitly — checkout with fetch-depth only fetches the PR head.
+        git fetch origin ${{ github.base_ref }}
+        # --no-merges skips GitHub's auto-generated merge commits (long SHA subjects)
+        git log --no-merges --oneline origin/${{ github.base_ref }}..HEAD > commits
         echo "Checking PR commits:"
         cat commits
         cut -d ' ' -f2- commits > commit_msgs
