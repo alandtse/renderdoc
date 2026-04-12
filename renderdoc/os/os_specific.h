@@ -36,6 +36,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <functional>
+#include "api/replay/callstack_types.h"
 #include "api/replay/rdcarray.h"
 #include "api/replay/rdcpair.h"
 #include "api/replay/rdcstr.h"
@@ -270,11 +271,19 @@ struct AddressDetails
   rdcstr formattedString(const rdcstr &commonPath = rdcstr());
 };
 
+// Alias the public API types into the Callstack namespace for internal convenience
+using PDBStatus = ::PDBStatus;
+using ModuleStatus = ::ModuleStatus;
+
 class StackResolver
 {
 public:
   virtual ~StackResolver() {}
   virtual AddressDetails GetAddr(uint64_t addr) = 0;
+  virtual rdcarray<ModuleStatus> GetModuleStatuses() { return {}; }
+  virtual bool ForceLoadPDB(const rdcstr &moduleName, const rdcstr &pdbPath) { return false; }
+  virtual bool RemoveIgnore(const rdcstr &moduleName) { return false; }
+  virtual bool AddIgnore(const rdcstr &moduleName) { return false; }
 };
 
 void Init();

@@ -79,6 +79,63 @@ Python/agent API (`qrenderdoc` module, via `ctx.GetPixelDebugSyncManager()`):
 
 ---
 
+### PDB Symbol Manager
+
+Exposes why each DLL's PDB symbols succeeded or failed to load, and allows
+force-loading a PDB after the initial symbol resolution pass.
+
+**Usage:**
+1. Open a capture that has callstacks (the **Tools → Resolve Symbols** menu
+   item must be enabled).
+2. Run **Tools → Resolve Symbols** as usual. When it finishes, the
+   **Tools → Symbol Manager…** item becomes active.
+3. The Symbol Manager dialog shows every module seen in the capture with
+   columns: *Module*, *Status*, *PDB Path*, and *Details*.
+4. Rows are colour-coded: green = Loaded, orange-red = Not Found,
+   dark red = Failed, grey = Ignored/Skipped.
+5. Select any non-loaded row and click **Load PDB…** to browse for a `.pdb`
+   file. The PDB is loaded immediately (GUID/age validation is bypassed for
+   force loads), the table refreshes, and the API Inspector re-resolves its
+   displayed callstack.
+6. **Refresh** re-queries the resolver (useful if symbols were loaded via
+   other means while the dialog is open).
+
+**UI features:**
+- **Tooltips**: hovering any cell shows the full status reason string.
+- **Sorting**: click any column header to sort ascending/descending.
+- **Filter**: a search box above the table live-filters rows by any column text
+  (case-insensitive).
+- **Remove from Ignore List**: enabled when an *Ignored* row is selected.
+  Removes the module from the persistent ignore list, marks it *Not Found*,
+  and saves the updated list to config. The module can then be loaded via
+  **Load PDB…**.
+- **Force Loaded** status (blue): modules loaded via **Load PDB…** show a
+  distinct *Force Loaded* status so it is clear GUID/age validation was
+  bypassed.
+
+**New/modified components:**
+- `renderdoc/api/replay/callstack_types.h` — new public header defining
+  `PDBStatus` enum (including `ForceLoaded` value) and `ModuleStatus` struct.
+- `renderdoc/os/os_specific.h` — `Callstack::StackResolver` gains virtual
+  `GetModuleStatuses()`, `ForceLoadPDB()`, and `RemoveIgnore()` with default
+  no-op implementations.
+- `renderdoc/os/win32/win32_callstack.cpp` — `Win32CallstackResolver` tracks
+  `pdbStatus`/`pdbPath`/`statusReason` per module; implements all three virtual
+  methods. `ForceLoadPDB` now sets `ForceLoaded` status. `RemoveIgnore` removes
+  the module from `pdbIgnores`, persists the updated list, and transitions the
+  module status to `NotFound`.
+- `renderdoc/api/replay/renderdoc_replay.h` — `ICaptureAccess` exposes
+  `GetModuleStatuses()`, `ForceLoadPDB()`, and `RemoveIgnore()`.
+- `renderdoc/replay/capture_file.cpp` — delegates all three new methods to the
+  resolver.
+- `renderdoc/core/remote_server.h` — empty stubs (remote PDB management is
+  not supported).
+- `qrenderdoc/Windows/Dialogs/SymbolManagerDialog` — new Qt dialog.
+- `qrenderdoc/Windows/MainWindow` — **Tools → Symbol Manager…** menu action,
+  enabled after Resolve Symbols completes.
+
+---
+
 ## Policy Differences from Upstream
 
 - LLM-assisted development is permitted (see [CONTRIBUTING.md](docs/CONTRIBUTING.md))

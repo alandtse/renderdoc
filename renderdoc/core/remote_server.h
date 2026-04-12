@@ -100,6 +100,12 @@ public:
 
   virtual rdcarray<rdcstr> GetResolve(const rdcarray<uint64_t> &callstack);
 
+  // PDB management is local-only; remote resolver has no transport for these
+  virtual rdcarray<ModuleStatus> GetModuleStatuses() { return {}; }
+  virtual bool ForceLoadPDB(const rdcstr &, const rdcstr &) { return false; }
+  virtual bool RemoveIgnore(const rdcstr &) { return false; }
+  virtual bool AddIgnore(const rdcstr &) { return false; }
+
   virtual ResultDetails EmbedDependenciesIntoCapture();
   virtual ResultDetails RemoveDependenciesFromCapture();
   virtual bool HasEmbeddedDependencies();

@@ -75,6 +75,7 @@ typedef void *(RENDERDOC_CC *pRENDERDOC_AllocArrayMem)(uint64_t sz);
 #include "stringise.h"
 
 // include all API types now
+#include "callstack_types.h"
 #include "capture_options.h"
 #include "control_types.h"
 #include "data_types.h"
@@ -369,7 +370,7 @@ Should only be called for mesh outputs.
 :param int x: The x co-ordinate to pick from.
 :param int y: The y co-ordinate to pick from.
 :return: A tuple with the first value being the vertex index in the mesh, and the second value being
-  the instance index. The values are set to :data:`NoResult` if no vertex was found, 
+  the instance index. The values are set to :data:`NoResult` if no vertex was found,
 :rtype: Tuple[int,int]
 )");
   virtual rdcpair<uint32_t, uint32_t> PickVertex(uint32_t x, uint32_t y) = 0;
@@ -773,7 +774,7 @@ regions.
   The event IDs for fake marker pushes and pops will not be contiguous with the surrounding actions
   and will be set to values above the last real event in the capture. This also means they break the
   typical rules that event IDs always increase. It's recommended that these events are not
-  referenced directly in other calls such as SetFrameEvent, and fake markers should be used 
+  referenced directly in other calls such as SetFrameEvent, and fake markers should be used
   sparingly at all compared to proper application-provided markers.
 )");
   virtual void AddFakeMarkers() = 0;
@@ -1001,7 +1002,7 @@ bucket when the pixel values are divided between ``minval`` and ``maxval``.
   sample: The multi-sampled sample. Ignored if non-multisampled texture.
   primitive: Debug the pixel from this primitive if there's ambiguity. If set to
   :data:`NoPreference` then a random fragment writing to the given co-ordinate is debugged.
-  view: Debug the fragment writing to this view for layered or multiview rendering, 
+  view: Debug the fragment writing to this view for layered or multiview rendering,
   ignored if set to :data:`NoPreference`.
 :return: The resulting trace resulting from debugging. Destroy with :meth:`FreeTrace`.
 :rtype: ShaderDebugTrace
@@ -1340,6 +1341,52 @@ Must only be called after :meth:`InitResolver` has returned ``True``.
 )");
   virtual rdcarray<rdcstr> GetResolve(const rdcarray<uint64_t> &callstack) = 0;
 
+  DOCUMENT(R"(Returns the PDB/symbol load status for every module seen during callstack resolution.
+
+Must only be called after :meth:`InitResolver` has been called.
+
+:return: The list of per-module symbol statuses. Empty if the resolver is unavailable or the
+  platform does not support PDB tracking (e.g. Linux).
+:rtype: List[ModuleStatus]
+)");
+  virtual rdcarray<ModuleStatus> GetModuleStatuses() = 0;
+
+  DOCUMENT(R"(Force-load a PDB for a specific module, bypassing GUID/age validation.
+
+Can be called after :meth:`InitResolver` to load a PDB that was not found automatically.
+Once loaded the symbols take effect immediately for subsequent :meth:`GetResolve` calls.
+
+:param str moduleName: The full path of the DLL/EXE as reported by :meth:`GetModuleStatuses`.
+:param str pdbPath: The full path to the ``.pdb`` file to load.
+:return: ``True`` if the PDB was loaded successfully.
+:rtype: bool
+)");
+  virtual bool ForceLoadPDB(const rdcstr &moduleName, const rdcstr &pdbPath) = 0;
+
+  DOCUMENT(R"(Remove a module from the persistent ignore list and mark it as resolvable.
+
+Call after :meth:`InitResolver` to un-ignore a module that was previously skipped due to being
+in the user ignore list. The module status changes to ``NotFound`` so that the user can then
+call :meth:`ForceLoadPDB` to supply a PDB manually.
+
+:param str moduleName: The full path of the DLL/EXE as reported by :meth:`GetModuleStatuses`.
+:return: ``True`` if the module was found in the ignore list and removed.
+:rtype: bool
+)");
+  virtual bool RemoveIgnore(const rdcstr &moduleName) = 0;
+
+  DOCUMENT(R"(Add a module to the persistent ignore list.
+
+Call after :meth:`InitResolver` to permanently ignore a module so its PDB is never loaded.
+Any symbols already loaded for this module are released immediately.
+The ignore list is persisted to the RenderDoc config so it applies to future captures too.
+
+:param str moduleName: The full path of the DLL/EXE as reported by :meth:`GetModuleStatuses`.
+:return: ``True`` if the module was added (``False`` if it was already in the list).
+:rtype: bool
+)");
+  virtual bool AddIgnore(const rdcstr &moduleName) = 0;
+
   DOCUMENT(R"(Retrieves the name of the driver that was used to create this capture.
 
 :return: A simple string identifying the driver used to make the capture.
@@ -1368,7 +1415,7 @@ Use :meth:`RemoveDependenciesFromCapture` to remove the embedded file data.
 
   DOCUMENT(R"(Removes the dependent files storage from the capture i.e. shader debug files.
 
-The files will be still be considered to be referenced by the capture and could be re-embedded 
+The files will be still be considered to be referenced by the capture and could be re-embedded
 by calling :meth:`EmbedDependenciesIntoCapture`.
 
 .. warning::
@@ -1393,7 +1440,7 @@ by calling :meth:`EmbedDependenciesIntoCapture`.
 )");
   virtual bool HasPendingDependencies() = 0;
 
-  DOCUMENT(R"(Retrieve a list of the nicknames of the externally referenced dependent files being referenced 
+  DOCUMENT(R"(Retrieve a list of the nicknames of the externally referenced dependent files being referenced
 by the capture i.e. shader debug files.
 
 .. note::

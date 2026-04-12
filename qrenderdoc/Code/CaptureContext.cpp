@@ -48,6 +48,7 @@
 #include "Windows/Dialogs/CrashDialog.h"
 #include "Windows/Dialogs/LiveCapture.h"
 #include "Windows/Dialogs/SettingsDialog.h"
+#include "Windows/Dialogs/SymbolManagerDialog.h"
 #include "Windows/EventBrowser.h"
 #include "Windows/LogView.h"
 #include "Windows/MainWindow.h"
@@ -2266,6 +2267,18 @@ IAPIInspector *CaptureContext::GetAPIInspector()
   return m_APIInspector;
 }
 
+ISymbolManager *CaptureContext::GetSymbolManager()
+{
+  if(m_SymbolManager)
+    return m_SymbolManager;
+
+  m_SymbolManager = new SymbolManagerDialog(*this, m_MainWindow);
+  m_SymbolManager->setObjectName(lit("symbolManager"));
+  setupDockWindow(m_SymbolManager, true);
+
+  return m_SymbolManager;
+}
+
 IAnnotationViewer *CaptureContext::GetAnnotationViewer()
 {
   if(m_AnnotationViewer)
@@ -2737,6 +2750,10 @@ QWidget *CaptureContext::CreateBuiltinWindow(const rdcstr &objectName)
   {
     return GetAPIInspector()->Widget();
   }
+  else if(objectName == "symbolManager")
+  {
+    return GetSymbolManager()->Widget();
+  }
   else if(objectName == "annotationViewer")
   {
     return GetAnnotationViewer()->Widget();
@@ -2791,6 +2808,8 @@ void CaptureContext::BuiltinWindowClosed(QWidget *window)
     m_CaptureDialog = NULL;
   else if(m_APIInspector && m_APIInspector->Widget() == window)
     m_APIInspector = NULL;
+  else if(m_SymbolManager && m_SymbolManager->Widget() == window)
+    m_SymbolManager = NULL;
   else if(m_PipelineViewer && m_PipelineViewer->Widget() == window)
     m_PipelineViewer = NULL;
   else if(m_MeshPreview && m_MeshPreview->Widget() == window)

@@ -167,6 +167,10 @@ public:
   bool HasCallstacks();
   ResultDetails InitResolver(bool interactive, RENDERDOC_ProgressCallback progress);
   rdcarray<rdcstr> GetResolve(const rdcarray<uint64_t> &callstack);
+  rdcarray<ModuleStatus> GetModuleStatuses();
+  bool ForceLoadPDB(const rdcstr &moduleName, const rdcstr &pdbPath);
+  bool RemoveIgnore(const rdcstr &moduleName);
+  bool AddIgnore(const rdcstr &moduleName);
 
   ResultDetails EmbedDependenciesIntoCapture();
   ResultDetails RemoveDependenciesFromCapture();
@@ -861,6 +865,34 @@ rdcarray<rdcstr> CaptureFile::GetResolve(const rdcarray<uint64_t> &callstack)
   }
 
   return ret;
+}
+
+rdcarray<ModuleStatus> CaptureFile::GetModuleStatuses()
+{
+  if(!m_Resolver)
+    return {};
+  return m_Resolver->GetModuleStatuses();
+}
+
+bool CaptureFile::ForceLoadPDB(const rdcstr &moduleName, const rdcstr &pdbPath)
+{
+  if(!m_Resolver)
+    return false;
+  return m_Resolver->ForceLoadPDB(moduleName, pdbPath);
+}
+
+bool CaptureFile::RemoveIgnore(const rdcstr &moduleName)
+{
+  if(!m_Resolver)
+    return false;
+  return m_Resolver->RemoveIgnore(moduleName);
+}
+
+bool CaptureFile::AddIgnore(const rdcstr &moduleName)
+{
+  if(!m_Resolver)
+    return false;
+  return m_Resolver->AddIgnore(moduleName);
 }
 
 ResultDetails CaptureFile::EmbedDependenciesIntoCapture()

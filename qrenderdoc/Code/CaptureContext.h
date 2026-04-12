@@ -55,6 +55,7 @@ class PythonShell;
 class ResourceInspector;
 class ShaderViewer;
 class PixelDebugSyncPanel;
+class SymbolManagerDialog;
 class MiniQtHelper;
 
 class QFileSystemWatcher;
@@ -214,6 +215,7 @@ public:
   IMainWindow *GetMainWindow() override;
   IEventBrowser *GetEventBrowser() override;
   IAPIInspector *GetAPIInspector() override;
+  ISymbolManager *GetSymbolManager() override;
   IAnnotationViewer *GetAnnotationViewer() override;
   ITextureViewer *GetTextureViewer() override;
   IBufferViewer *GetMeshPreview() override;
@@ -232,6 +234,7 @@ public:
 
   bool HasEventBrowser() override { return m_EventBrowser != NULL; }
   bool HasAPIInspector() override { return m_APIInspector != NULL; }
+  bool HasSymbolManager() override { return m_SymbolManager != NULL; }
   bool HasAnnotationViewer() override { return m_AnnotationViewer != NULL; }
   bool HasTextureViewer() override { return m_TextureViewer != NULL; }
   bool HasPipelineViewer() override { return m_PipelineViewer != NULL; }
@@ -444,6 +447,7 @@ private:
   MainWindow *m_MainWindow = NULL;
   EventBrowser *m_EventBrowser = NULL;
   APIInspector *m_APIInspector = NULL;
+  SymbolManagerDialog *m_SymbolManager = NULL;
   AnnotationDisplay *m_AnnotationViewer = NULL;
   TextureViewer *m_TextureViewer = NULL;
   BufferViewer *m_MeshPreview = NULL;
