@@ -2750,7 +2750,7 @@ QWidget *CaptureContext::CreateBuiltinWindow(const rdcstr &objectName)
   {
     return GetAPIInspector()->Widget();
   }
-  else if(objectName == lit("symbolManager"))
+  else if(objectName == "symbolManager")
   {
     return GetSymbolManager()->Widget();
   }

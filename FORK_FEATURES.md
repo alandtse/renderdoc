@@ -126,7 +126,7 @@ force-loading a PDB after the initial symbol resolution pass.
   persist the ignore list via `PersistIgnoreList()`.
 - `renderdoc/api/replay/renderdoc_replay.h` — `ICaptureAccess` exposes
   `GetModuleStatuses()`, `ForceLoadPDB()`, `AddIgnore()`, and `RemoveIgnore()`.
-- `renderdoc/replay/capture_file.cpp` — delegates all three new methods to the
+- `renderdoc/replay/capture_file.cpp` — delegates all four new methods to the
   resolver.
 - `renderdoc/core/remote_server.h` — empty stubs (remote PDB management is
   not supported).

@@ -1059,6 +1059,7 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
 
     int fallbackIdx = -1;
     HRESULT lastDiaHr = S_OK;
+    bool pdbAttempted = false;    // true once DIA2::GetModule is called with a non-empty path
 
     while(m.moduleId == 0)
     {
@@ -1091,6 +1092,7 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
       }
 
       HRESULT diaHr = S_OK;
+      pdbAttempted = true;
       m.moduleId = DIA2::GetModule(StringFormat::UTF82Wide(pdbName), chunk->guid, chunk->age, &diaHr);
 
       if(m.moduleId == 0)
@@ -1127,9 +1129,9 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
         continue;
       }
 
-      // record why we failed — distinguish "not found anywhere" from "found but bad"
+      // record why we failed — distinguish "never found a candidate" from "found but bad GUID/age"
       m.pdbPath = pdbName;
-      if(defaultPdb == "" || !FileIO::exists(defaultPdb))
+      if(!pdbAttempted)
       {
         m.pdbStatus = Callstack::PDBStatus::NotFound;
         m.statusReason =
