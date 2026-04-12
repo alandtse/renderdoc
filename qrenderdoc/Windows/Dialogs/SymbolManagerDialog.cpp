@@ -235,7 +235,10 @@ void SymbolManagerDialog::applyFilter()
       }
     }
     m_Table->setRowHidden(i, !match);
+    if(!match && m_Table->item(i, 0) && m_Table->item(i, 0)->isSelected())
+      m_Table->clearSelection();
   }
+  updateButtonStates();
 }
 
 void SymbolManagerDialog::filterChanged(const QString &)

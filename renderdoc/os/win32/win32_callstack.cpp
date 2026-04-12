@@ -1046,45 +1046,16 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
 
     rdcstr pdbName = defaultPdb;
 
-    bool ignored = pdbIgnores.contains(m.name);
-    bool allowManualSearch = interactive && !ignored;
-    bool ignoredHasPdb = false;
-
-    if(ignored)
+    if(pdbIgnores.contains(m.name))
     {
-      if(defaultPdb != "" && FileIO::exists(defaultPdb))
-      {
-        ignoredHasPdb = true;
-      }
-      else
-      {
-        rdcstr baseName = get_basename(defaultPdb);
-        if(baseName == "")
-          baseName = get_basename(m.name);
-
-        for(size_t pathIdx = 0; pathIdx < pdbRememberedPaths.size(); pathIdx++)
-        {
-          rdcstr check = pdbRememberedPaths[pathIdx] + "\\" + baseName;
-          if(FileIO::exists(check))
-          {
-            pdbName = check;
-            ignoredHasPdb = true;
-            failed = false;
-            break;
-          }
-        }
-      }
-
-      if(!ignoredHasPdb)
-      {
-        RDCWARN("Not attempting to get symbols for %s", m.name.c_str());
-
-        m.pdbStatus = Callstack::PDBStatus::Ignored;
-        m.statusReason = "Module is in the user ignore list";
-        modules.push_back(m);
-        continue;
-      }
+      RDCWARN("Not attempting to get symbols for %s", m.name.c_str());
+      m.pdbStatus = Callstack::PDBStatus::Ignored;
+      m.statusReason = "Module is in the user ignore list";
+      modules.push_back(m);
+      continue;
     }
+
+    bool allowManualSearch = interactive;
 
     int fallbackIdx = -1;
     HRESULT lastDiaHr = S_OK;
@@ -1173,8 +1144,7 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
       }
       modules.push_back(m);
 
-      // if we're not interactive or this module was already ignored, just continue
-      if(!interactive || ignored)
+      if(!interactive)
         continue;
 
       rdcstr text = StringFormat::Fmt("Do you want to permanently ignore this file?\nPath: %s",
@@ -1259,6 +1229,7 @@ bool Win32CallstackResolver::ForceLoadPDB(const rdcstr &moduleName, const rdcstr
 
     if(newId == 0)
     {
+      modules[i].pdbPath = pdbPath;
       modules[i].pdbStatus = Callstack::PDBStatus::Failed;
       modules[i].statusReason = StringFormat::Fmt("Force load failed for '%s': %s", pdbPath.c_str(),
                                                   DIA2::DIA_ErrorString(diaHr).c_str());
@@ -1272,6 +1243,14 @@ bool Win32CallstackResolver::ForceLoadPDB(const rdcstr &moduleName, const rdcstr
     modules[i].pdbPath = pdbPath;
     modules[i].pdbStatus = Callstack::PDBStatus::ForceLoaded;
     modules[i].statusReason = StringFormat::Fmt("Force loaded from '%s'", pdbPath.c_str());
+
+    // if this module was previously ignored, remove it from the ignore list
+    int32_t ignoreIdx = pdbIgnores.indexOf(moduleName);
+    if(ignoreIdx >= 0)
+    {
+      pdbIgnores.erase(ignoreIdx);
+      PersistIgnoreList();
+    }
 
     // remember the directory so future modules can also search here
     rdcstr dir = get_dirname(pdbPath);

@@ -26,6 +26,12 @@ API Inspector
 .. autoclass:: qrenderdoc.APIInspector
   :members:
 
+Symbol Manager
+--------------
+
+.. autoclass:: qrenderdoc.SymbolManager
+  :members:
+
 Pipeline State
 --------------
 

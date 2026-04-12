@@ -371,7 +371,7 @@
   </action>
   <action name="action_Symbol_Manager">
    <property name="text">
-    <string>&amp;Symbol Manager...</string>
+    <string>Symbol &amp;Manager...</string>
    </property>
   </action>
   <action name="action_Settings">

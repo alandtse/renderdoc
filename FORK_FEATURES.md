@@ -117,15 +117,15 @@ force-loading a PDB after the initial symbol resolution pass.
 - `renderdoc/api/replay/callstack_types.h` — new public header defining
   `PDBStatus` enum (including `ForceLoaded` value) and `ModuleStatus` struct.
 - `renderdoc/os/os_specific.h` — `Callstack::StackResolver` gains virtual
-  `GetModuleStatuses()`, `ForceLoadPDB()`, and `RemoveIgnore()` with default
-  no-op implementations.
+  `GetModuleStatuses()`, `ForceLoadPDB()`, `AddIgnore()`, and `RemoveIgnore()`
+  with default no-op implementations.
 - `renderdoc/os/win32/win32_callstack.cpp` — `Win32CallstackResolver` tracks
-  `pdbStatus`/`pdbPath`/`statusReason` per module; implements all three virtual
-  methods. `ForceLoadPDB` now sets `ForceLoaded` status. `RemoveIgnore` removes
-  the module from `pdbIgnores`, persists the updated list, and transitions the
-  module status to `NotFound`.
+  `pdbStatus`/`pdbPath`/`statusReason` per module; implements all four virtual
+  methods. `ForceLoadPDB` sets `ForceLoaded` status and removes the module from
+  the ignore list if it was previously ignored. `AddIgnore`/`RemoveIgnore`
+  persist the ignore list via `PersistIgnoreList()`.
 - `renderdoc/api/replay/renderdoc_replay.h` — `ICaptureAccess` exposes
-  `GetModuleStatuses()`, `ForceLoadPDB()`, and `RemoveIgnore()`.
+  `GetModuleStatuses()`, `ForceLoadPDB()`, `AddIgnore()`, and `RemoveIgnore()`.
 - `renderdoc/replay/capture_file.cpp` — delegates all three new methods to the
   resolver.
 - `renderdoc/core/remote_server.h` — empty stubs (remote PDB management is
