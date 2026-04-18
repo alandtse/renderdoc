@@ -2450,6 +2450,14 @@ the resource type.
 )");
   virtual rdcstr GetResourceName(ResourceId id) const = 0;
 
+  DOCUMENT(R"(Retrieve the original source filenames used to build a shader resource, if debug info is present.
+
+:param renderdoc.ResourceId id: The ID of the shader resource to query.
+:return: A list of original filenames.
+:rtype: List[str]
+)");
+  virtual rdcarray<rdcstr> GetShaderFilenames(ResourceId id) const = 0;
+
   DOCUMENT(R"(Returns the same name as :meth:`GetResourceName` but without any added suffix, e.g. to
 indicate the resource's status such as (Edited).
 

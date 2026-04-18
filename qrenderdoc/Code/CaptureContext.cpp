@@ -1178,8 +1178,51 @@ void CaptureContext::CacheResources()
               return GetResourceNameUnsuffixed(&a) < GetResourceNameUnsuffixed(&b);
             });
 
+  rdcarray<ResourceId> shaders;
   for(ResourceDescription &res : m_ResourceList)
+  {
     m_Resources[res.resourceId] = &res;
+    if(res.type == ResourceType::Shader)
+    {
+      shaders.push_back(res.resourceId);
+    }
+  }
+
+  // Clear immediately in UI thread, then queue background fetch
+  m_ShaderFilenames.clear();
+
+  if(!shaders.empty())
+  {
+    m_Replay.AsyncInvoke([this, shaders](IReplayController *r) {
+      QMap<ResourceId, rdcarray<rdcstr>> tempShaderFilenames;
+
+      for(ResourceId id : shaders)
+      {
+        const ShaderReflection *refl = r->GetShader(ResourceId(), id, ShaderEntryPoint());
+        if(refl && refl->debugInfo.files.count() > 0)
+        {
+          rdcarray<rdcstr> filenames;
+          for(const ShaderSourceFile &file : refl->debugInfo.files)
+          {
+            if(!file.filename.empty())
+            {
+              filenames.push_back(file.filename);
+            }
+          }
+          if(!filenames.empty())
+          {
+            tempShaderFilenames[id] = filenames;
+          }
+        }
+      }
+
+      GUIInvoke::call(m_MainWindow, [this, tempShaderFilenames]() {
+        m_ShaderFilenames = tempShaderFilenames;
+        // Optionally trigger a UI refresh to pick up the new filterability
+        m_CustomNameCachedID++;
+      });
+    });
+  }
 }
 
 void CaptureContext::RecompressCapture()
@@ -2131,10 +2174,21 @@ rdcstr CaptureContext::GetResourceNameUnsuffixed(ResourceId id) const
 
 rdcstr CaptureContext::GetResourceNameUnsuffixed(const ResourceDescription *desc) const
 {
+  if(!desc)
+    return rdcstr();
+
   if(m_CustomNames.contains(desc->resourceId))
     return m_CustomNames[desc->resourceId];
 
   return desc->name;
+}
+
+rdcarray<rdcstr> CaptureContext::GetShaderFilenames(ResourceId id) const
+{
+  auto it = m_ShaderFilenames.find(id);
+  if(it != m_ShaderFilenames.end())
+    return it.value();
+  return rdcarray<rdcstr>();
 }
 
 rdcstr CaptureContext::GetResourceName(ResourceId id) const

@@ -1502,6 +1502,7 @@ public:
       MAKE_BUILTIN_FILTER(childOf);
       MAKE_BUILTIN_FILTER(parent);
       MAKE_BUILTIN_FILTER(annot);
+      MAKE_BUILTIN_FILTER(shader);
 
       /*
       m_BuiltinFilters[lit("event")].completer = [this](ICaptureContext *ctx, QString name,
@@ -3041,6 +3042,78 @@ nesting level.
       }
 
       return false;
+    };
+  }
+
+  rdcstr filterDescription_shader()
+  {
+    return tr(
+        "shader(name) => actions that use a shader matching name (or original filename from debug "
+        "info)");
+  }
+
+  IEventBrowser::EventFilterCallback filterFunction_shader(QString name, QString parameters,
+                                                           ParseTrace &trace)
+  {
+    QList<Token> tokens = tokenise(parameters);
+
+    if(tokens.isEmpty())
+    {
+      trace.setError(tr("Expected shader name"));
+      return [](ICaptureContext *, const rdcstr &, const rdcstr &, uint32_t, const SDChunk *,
+                const ActionDescription *, const rdcstr &) { return false; };
+    }
+
+    QString searchName = tokens[0].text;
+    if(searchName.startsWith(lit("\"")) && searchName.endsWith(lit("\"")))
+      searchName = searchName.mid(1, searchName.length() - 2);
+
+    QSet<uint32_t> matchingEIDs;
+
+    rdcarray<ResourceId> matchingResources;
+    for(const ResourceDescription &res : m_Ctx.GetResources())
+    {
+      if(res.type != ResourceType::Shader)
+        continue;
+
+      bool match = false;
+      if(QString(m_Ctx.GetResourceName(res.resourceId)).contains(searchName, Qt::CaseInsensitive))
+      {
+        match = true;
+      }
+      else
+      {
+        for(const rdcstr &fname : m_Ctx.GetShaderFilenames(res.resourceId))
+        {
+          if(QString(fname).contains(searchName, Qt::CaseInsensitive))
+          {
+            match = true;
+            break;
+          }
+        }
+      }
+
+      if(match)
+        matchingResources.push_back(res.resourceId);
+    }
+
+    if(!matchingResources.empty())
+    {
+      m_Ctx.Replay().BlockInvoke([&matchingEIDs, &matchingResources](IReplayController *r) {
+        for(ResourceId id : matchingResources)
+        {
+          rdcarray<EventUsage> usage = r->GetUsage(id);
+          for(const EventUsage &u : usage)
+            matchingEIDs.insert(u.eventId);
+        }
+      });
+    }
+
+    return [matchingEIDs](ICaptureContext *ctx, const rdcstr &, const rdcstr &, uint32_t eventId,
+                          const SDChunk *, const ActionDescription *action, const rdcstr &) {
+      if(!action)
+        return false;
+      return action->eventId == eventId && matchingEIDs.contains(action->eventId);
     };
   }
 

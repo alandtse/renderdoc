@@ -96,7 +96,17 @@ public:
           return QVariant::fromValue(desc.resourceId);
 
         if(role == FilterRole)
-          return ToQStr(desc.type) + lit(" ") + m_Ctx.GetResourceName(desc.resourceId);
+        {
+          QString filterTarget =
+              ToQStr(desc.type) + lit(" ") + m_Ctx.GetResourceName(desc.resourceId);
+          if(desc.type == ResourceType::Shader)
+          {
+            const rdcarray<rdcstr> &files = m_Ctx.GetShaderFilenames(desc.resourceId);
+            for(const rdcstr &f : files)
+              filterTarget += lit(" ") + QString(f);
+          }
+          return filterTarget;
+        }
 
         if(role == LastAccessSortRole)
           return m_LastUse[desc.resourceId];

@@ -506,6 +506,10 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
     return m_Obj.GetResources();
   }
   virtual rdcstr GetResourceName(ResourceId id) const override { return m_Obj.GetResourceName(id); }
+  virtual rdcarray<rdcstr> GetShaderFilenames(ResourceId id) const override
+  {
+    return m_Obj.GetShaderFilenames(id);
+  }
   virtual rdcstr GetResourceNameUnsuffixed(ResourceId id) const override
   {
     return m_Obj.GetResourceNameUnsuffixed(id);
