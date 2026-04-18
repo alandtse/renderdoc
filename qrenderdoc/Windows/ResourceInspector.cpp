@@ -98,7 +98,7 @@ public:
         if(role == FilterRole)
         {
           QString filterTarget =
-              ToQStr(desc.type) + lit(" ") + m_Ctx.GetResourceName(desc.resourceId);
+              QFormatStr("%1 %2").arg(ToQStr(desc.type)).arg(m_Ctx.GetResourceName(desc.resourceId));
           if(desc.type == ResourceType::Shader)
           {
             const rdcarray<rdcstr> &files = m_Ctx.GetShaderFilenames(desc.resourceId);
