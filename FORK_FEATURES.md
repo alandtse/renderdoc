@@ -165,7 +165,7 @@ force-loading a PDB after the initial symbol resolution pass.
 
 ---
 
-### Shader Source Names as First Class Support
+### Shader Source Names as First-Class Support
 
 Exposes full shader source filenames natively to RenderDoc's UI components, allowing easy filtering and discovery of API events by matching real source code filenames instead of just numerical IDs or pipeline states.
 

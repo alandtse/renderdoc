@@ -2453,7 +2453,7 @@ the resource type.
   DOCUMENT(R"(Retrieve the original source filenames used to build a shader resource, if debug info is present.
 
 :param renderdoc.ResourceId id: The ID of the shader resource to query.
-:return: A list of original filenames.
+:return: The list of original filenames.
 :rtype: List[str]
 )");
   virtual rdcarray<rdcstr> GetShaderFilenames(ResourceId id) const = 0;

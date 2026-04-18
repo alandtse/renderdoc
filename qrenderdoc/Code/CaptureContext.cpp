@@ -1190,10 +1190,11 @@ void CaptureContext::CacheResources()
 
   // Clear immediately in UI thread, then queue background fetch
   m_ShaderFilenames.clear();
+  uint32_t gen = ++m_ShaderFilenameGen;
 
   if(!shaders.empty())
   {
-    m_Replay.AsyncInvoke([this, shaders](IReplayController *r) {
+    m_Replay.AsyncInvoke([this, shaders, gen](IReplayController *r) {
       QMap<ResourceId, rdcarray<rdcstr>> tempShaderFilenames;
 
       for(ResourceId id : shaders)
@@ -1216,10 +1217,13 @@ void CaptureContext::CacheResources()
         }
       }
 
-      GUIInvoke::call(m_MainWindow, [this, tempShaderFilenames]() {
-        m_ShaderFilenames = tempShaderFilenames;
-        // Optionally trigger a UI refresh to pick up the new filterability
-        m_CustomNameCachedID++;
+      GUIInvoke::call(m_MainWindow, [this, tempShaderFilenames, gen]() {
+        if(gen == m_ShaderFilenameGen)
+        {
+          m_ShaderFilenames = tempShaderFilenames;
+          // Optionally trigger a UI refresh to pick up the new filterability
+          m_CustomNameCachedID++;
+        }
       });
     });
   }
@@ -1491,6 +1495,8 @@ void CaptureContext::CloseCapture()
   m_ReplacedToOrigResources.clear();
 
   m_CustomNames.clear();
+  m_ShaderFilenames.clear();
+  m_ShaderFilenameGen++;
   m_Bookmarks.clear();
   m_Notes.clear();
 
@@ -2185,7 +2191,7 @@ rdcstr CaptureContext::GetResourceNameUnsuffixed(const ResourceDescription *desc
 
 rdcarray<rdcstr> CaptureContext::GetShaderFilenames(ResourceId id) const
 {
-  auto it = m_ShaderFilenames.find(id);
+  QMap<ResourceId, rdcarray<rdcstr>>::const_iterator it = m_ShaderFilenames.find(id);
   if(it != m_ShaderFilenames.end())
     return it.value();
   return rdcarray<rdcstr>();

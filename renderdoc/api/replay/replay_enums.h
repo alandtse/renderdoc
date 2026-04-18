@@ -3114,17 +3114,6 @@ enum class ResourceUsage : uint32_t
 
   All_RWResource,
 
-  VS_Shader,
-  HS_Shader,
-  DS_Shader,
-  GS_Shader,
-  PS_Shader,
-  CS_Shader,
-  TS_Shader,
-  MS_Shader,
-
-  All_Shader,
-
   InputTarget,
   ColorTarget,
   DepthStencilTarget,
@@ -3145,6 +3134,17 @@ enum class ResourceUsage : uint32_t
   Barrier,
 
   CPUWrite,
+
+  VS_Shader,
+  HS_Shader,
+  DS_Shader,
+  GS_Shader,
+  PS_Shader,
+  CS_Shader,
+  TS_Shader,
+  MS_Shader,
+
+  All_Shader,
 };
 
 DECLARE_REFLECTION_ENUM(ResourceUsage);
@@ -3205,7 +3205,9 @@ constexpr inline ResourceUsage RWResUsage(ShaderStage stage)
 template <typename integer>
 constexpr inline ResourceUsage ShaderUsage(integer stage)
 {
-  return ResourceUsage(uint32_t(ResourceUsage::VS_Shader) + stage);
+  if(uint32_t(stage) <= (uint32_t)ShaderStage::Mesh)
+    return ResourceUsage(uint32_t(ResourceUsage::VS_Shader) + uint32_t(stage));
+  return ResourceUsage::All_Shader;
 }
 
 DOCUMENT(R"(Calculate the ``ResourceUsage`` value for a shader object use at a given shader stage.

@@ -3045,7 +3045,7 @@ nesting level.
     };
   }
 
-  rdcstr filterDescription_shader()
+  QString filterDescription_shader() const
   {
     return tr(
         "shader(name) => actions that use a shader matching name (or original filename from debug "
@@ -3055,16 +3055,14 @@ nesting level.
   IEventBrowser::EventFilterCallback filterFunction_shader(QString name, QString parameters,
                                                            ParseTrace &trace)
   {
-    QList<Token> tokens = tokenise(parameters);
+    QString searchName = parameters.trimmed();
 
-    if(tokens.isEmpty())
+    if(searchName.isEmpty())
     {
       trace.setError(tr("Expected shader name"));
-      return [](ICaptureContext *, const rdcstr &, const rdcstr &, uint32_t, const SDChunk *,
-                const ActionDescription *, const rdcstr &) { return false; };
+      return NULL;
     }
 
-    QString searchName = tokens[0].text;
     if(searchName.startsWith(lit("\"")) && searchName.endsWith(lit("\"")))
       searchName = searchName.mid(1, searchName.length() - 2);
 

@@ -103,7 +103,7 @@ public:
           {
             const rdcarray<rdcstr> &files = m_Ctx.GetShaderFilenames(desc.resourceId);
             for(const rdcstr &f : files)
-              filterTarget += lit(" ") + QString(f);
+              filterTarget += QFormatStr(" %1").arg(f);
           }
           return filterTarget;
         }
