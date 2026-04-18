@@ -1194,7 +1194,7 @@ void CaptureContext::CacheResources()
 
   if(!shaders.empty())
   {
-    m_Replay.AsyncInvoke("CacheShaderFilenames", [this, shaders, gen](IReplayController *r) {
+    m_Replay.AsyncInvoke(lit("CacheShaderFilenames"), [this, shaders, gen](IReplayController *r) {
       QMap<ResourceId, rdcarray<rdcstr>> tempShaderFilenames;
 
       int i = 0;
@@ -1474,6 +1474,9 @@ bool CaptureContext::SaveCaptureTo(const rdcstr &captureFile)
 
 void CaptureContext::CloseCapture()
 {
+  m_ShaderFilenames.clear();
+  m_ShaderFilenameGen++;
+
   if(!m_CaptureLoaded)
     return;
 
@@ -1502,8 +1505,6 @@ void CaptureContext::CloseCapture()
   m_ReplacedToOrigResources.clear();
 
   m_CustomNames.clear();
-  m_ShaderFilenames.clear();
-  m_ShaderFilenameGen++;
   m_Bookmarks.clear();
   m_Notes.clear();
 

@@ -30,6 +30,7 @@
 #include <QMessageBox>
 #include <QString>
 #include <QtWidgets/QWidget>
+#include <atomic>
 #include "Interface/QRDInterface.h"
 #include "ReplayManager.h"
 
@@ -412,7 +413,7 @@ private:
 
   QMap<ResourceId, QString> m_CustomNames;
   QMap<ResourceId, rdcarray<rdcstr>> m_ShaderFilenames;
-  uint32_t m_ShaderFilenameGen = 0;
+  std::atomic<uint32_t> m_ShaderFilenameGen{0};
   int m_CustomNameCachedID = 1;
 
   // map orig replaced -> edited replacement ID
