@@ -1194,11 +1194,18 @@ void CaptureContext::CacheResources()
 
   if(!shaders.empty())
   {
-    m_Replay.AsyncInvoke([this, shaders, gen](IReplayController *r) {
+    m_Replay.AsyncInvoke("CacheShaderFilenames", [this, shaders, gen](IReplayController *r) {
       QMap<ResourceId, rdcarray<rdcstr>> tempShaderFilenames;
 
+      int i = 0;
       for(ResourceId id : shaders)
       {
+        if(gen != m_ShaderFilenameGen)
+          return;
+
+        if((++i % 100) == 0)
+          QThread::yieldCurrentThread();
+
         const ShaderReflection *refl = r->GetShader(ResourceId(), id, ShaderEntryPoint());
         if(refl && refl->debugInfo.files.count() > 0)
         {

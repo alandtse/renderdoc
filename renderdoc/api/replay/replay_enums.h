@@ -3207,7 +3207,7 @@ constexpr inline ResourceUsage ShaderUsage(integer stage)
 {
   return (uint32_t(stage) <= (uint32_t)ShaderStage::Mesh)
              ? ResourceUsage(uint32_t(ResourceUsage::VS_Shader) + uint32_t(stage))
-             : ResourceUsage::All_Shader;
+             : ResourceUsage::Unused;
 }
 
 DOCUMENT(R"(Calculate the ``ResourceUsage`` value for a shader object use at a given shader stage.
