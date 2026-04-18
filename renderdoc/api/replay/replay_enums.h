@@ -3205,9 +3205,9 @@ constexpr inline ResourceUsage RWResUsage(ShaderStage stage)
 template <typename integer>
 constexpr inline ResourceUsage ShaderUsage(integer stage)
 {
-  if(uint32_t(stage) <= (uint32_t)ShaderStage::Mesh)
-    return ResourceUsage(uint32_t(ResourceUsage::VS_Shader) + uint32_t(stage));
-  return ResourceUsage::All_Shader;
+  return (uint32_t(stage) <= (uint32_t)ShaderStage::Mesh)
+             ? ResourceUsage(uint32_t(ResourceUsage::VS_Shader) + uint32_t(stage))
+             : ResourceUsage::All_Shader;
 }
 
 DOCUMENT(R"(Calculate the ``ResourceUsage`` value for a shader object use at a given shader stage.
