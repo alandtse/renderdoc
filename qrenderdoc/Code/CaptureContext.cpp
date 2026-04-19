@@ -1190,7 +1190,7 @@ void CaptureContext::CacheResources()
 
   // Clear immediately in UI thread, then queue background fetch
   m_ShaderFilenames.clear();
-  uint32_t gen = ++m_ShaderFilenameGen;
+  int gen = m_ShaderFilenameGen.fetch_add(1) + 1;
 
   if(!shaders.empty())
   {
@@ -1200,7 +1200,7 @@ void CaptureContext::CacheResources()
       int i = 0;
       for(ResourceId id : shaders)
       {
-        if(gen != m_ShaderFilenameGen)
+        if(gen != m_ShaderFilenameGen.load())
           return;
 
         if((++i % 100) == 0)
@@ -1225,7 +1225,7 @@ void CaptureContext::CacheResources()
       }
 
       GUIInvoke::call(m_MainWindow, [this, tempShaderFilenames, gen]() {
-        if(gen == m_ShaderFilenameGen)
+        if(gen == m_ShaderFilenameGen.load())
         {
           m_ShaderFilenames = tempShaderFilenames;
           // Optionally trigger a UI refresh to pick up the new filterability
@@ -1475,7 +1475,7 @@ bool CaptureContext::SaveCaptureTo(const rdcstr &captureFile)
 void CaptureContext::CloseCapture()
 {
   m_ShaderFilenames.clear();
-  m_ShaderFilenameGen++;
+  m_ShaderFilenameGen.fetch_add(1);
 
   if(!m_CaptureLoaded)
     return;
@@ -2093,6 +2093,9 @@ void CaptureContext::LoadEdits(const QString &data)
 void CaptureContext::ClearReplayCache()
 {
   m_CustomNameCachedID++;
+
+  m_ShaderFilenames.clear();
+  m_ShaderFilenameGen.fetch_add(1);
 
   Replay().AsyncInvoke([](IReplayController *r) { r->ClearReplayCache(); });
 }

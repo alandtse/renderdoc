@@ -413,7 +413,7 @@ private:
 
   QMap<ResourceId, QString> m_CustomNames;
   QMap<ResourceId, rdcarray<rdcstr>> m_ShaderFilenames;
-  std::atomic<uint32_t> m_ShaderFilenameGen{0};
+  std::atomic<int> m_ShaderFilenameGen{0};
   int m_CustomNameCachedID = 1;
 
   // map orig replaced -> edited replacement ID
