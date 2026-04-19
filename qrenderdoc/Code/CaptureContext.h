@@ -350,7 +350,7 @@ private:
   bool SaveEdits();
   void LoadEdits(const QString &data);
 
-  void CacheResources();
+  void CacheResources(bool clear = true);
   rdcstr GetResourceNameUnsuffixed(const ResourceDescription *desc) const;
 
   float m_LoadProgress = 0.0f;

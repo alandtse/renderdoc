@@ -1167,11 +1167,14 @@ void CaptureContext::LoadCaptureThreaded(const QString &captureFile, const Repla
   m_CaptureLoaded = true;
 }
 
-void CaptureContext::CacheResources()
+void CaptureContext::CacheResources(bool clear)
 {
   m_CustomNameCachedID++;
 
-  m_Resources.clear();
+  if(clear)
+  {
+    m_Resources.clear();
+  }
 
   std::sort(m_ResourceList.begin(), m_ResourceList.end(),
             [this](const ResourceDescription &a, const ResourceDescription &b) {
@@ -1188,8 +1191,11 @@ void CaptureContext::CacheResources()
     }
   }
 
-  // Clear immediately in UI thread, then queue background fetch
-  m_ShaderFilenames.clear();
+  // If requested, clear immediately in UI thread, then queue background fetch
+  if(clear)
+  {
+    m_ShaderFilenames.clear();
+  }
   int gen = m_ShaderFilenameGen.fetch_add(1) + 1;
 
   if(!shaders.empty())
@@ -2094,8 +2100,7 @@ void CaptureContext::ClearReplayCache()
 {
   m_CustomNameCachedID++;
 
-  m_ShaderFilenames.clear();
-  m_ShaderFilenameGen.fetch_add(1);
+  CacheResources(false);
 
   Replay().AsyncInvoke([](IReplayController *r) { r->ClearReplayCache(); });
 }
