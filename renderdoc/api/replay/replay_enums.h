@@ -2967,6 +2967,50 @@ Note that a resource may be used for more than one thing in one event, see :clas
 
   The resource is being used as a read-write resource in all shader stages.
 
+.. data:: VS_Shader
+
+  The resource is being used as the shader object for the
+  :data:`vertex shader <ShaderStage.Vertex>`.
+
+.. data:: HS_Shader
+
+  The resource is being used as the shader object for the tessellation control or
+  :data:`hull shader <ShaderStage.Hull>`.
+
+.. data:: DS_Shader
+
+  The resource is being used as the shader object for the tessellation evaluation or
+  :data:`domain shader <ShaderStage.Domain>`.
+
+.. data:: GS_Shader
+
+  The resource is being used as the shader object for the
+  :data:`geometry shader <ShaderStage.Geometry>`.
+
+.. data:: PS_Shader
+
+  The resource is being used as the shader object for the
+  :data:`pixel shader <ShaderStage.Pixel>`.
+
+.. data:: CS_Shader
+
+  The resource is being used as the shader object for the
+  :data:`compute shader <ShaderStage.Compute>`.
+
+.. data:: TS_Shader
+
+  The resource is being used as the shader object for the amplification or
+  :data:`task shader <ShaderStage.Task>`.
+
+.. data:: MS_Shader
+
+  The resource is being used as the shader object for the
+  :data:`mesh shader <ShaderStage.Mesh>`.
+
+.. data:: All_Shader
+
+  The resource is being used as the shader object in all shader stages.
+
 .. data:: InputTarget
 
   The resource is being read as an input target for reading from the target currently being written.
@@ -3090,6 +3134,17 @@ enum class ResourceUsage : uint32_t
   Barrier,
 
   CPUWrite,
+
+  VS_Shader,
+  HS_Shader,
+  DS_Shader,
+  GS_Shader,
+  PS_Shader,
+  CS_Shader,
+  TS_Shader,
+  MS_Shader,
+
+  All_Shader,
 };
 
 DECLARE_REFLECTION_ENUM(ResourceUsage);
@@ -3145,6 +3200,25 @@ stage.
 constexpr inline ResourceUsage RWResUsage(ShaderStage stage)
 {
   return RWResUsage(uint32_t(stage));
+}
+
+template <typename integer>
+constexpr inline ResourceUsage ShaderUsage(integer stage)
+{
+  return (uint32_t(stage) <= (uint32_t)ShaderStage::Mesh)
+             ? ResourceUsage(uint32_t(ResourceUsage::VS_Shader) + uint32_t(stage))
+             : ResourceUsage::Unused;
+}
+
+DOCUMENT(R"(Calculate the ``ResourceUsage`` value for a shader object use at a given shader stage.
+
+:param ShaderStage stage: The shader stage.
+:return: The value for shader object usage at a given shader stage.
+:rtype: ResourceUsage
+)");
+constexpr inline ResourceUsage ShaderUsage(ShaderStage stage)
+{
+  return ShaderUsage(uint32_t(stage));
 }
 
 DOCUMENT(R"(What kind of visualisation to use when rendering a mesh.

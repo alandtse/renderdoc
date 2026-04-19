@@ -165,6 +165,19 @@ force-loading a PDB after the initial symbol resolution pass.
 
 ---
 
+### Shader Source Names as First-Class Support
+
+Exposes full shader source filenames natively to RenderDoc's UI components, allowing easy filtering and discovery of API events by matching real source code filenames instead of just numerical IDs or pipeline states.
+
+**Features:**
+- Event Browser: Use `$shader(filename)` or `$shader("partial match")` filters to instantly find all draw/dispatch calls using a specific shader.
+- Resource Inspector: Filter shader objects directly by their debug info source name.
+
+**Changes:**
+- Extends the D3D11 driver (`WrappedID3D11DeviceContext::AddUsage`) to capture shader device child bindings into the `m_ResourceUses` array at capture chunk load time.
+- Modifies `ResourceUsage` enums and UI formatters (`QRDUtils`) to gracefully handle explicit shader stages (e.g. `VS_Shader`, `PS_Shader`).
+- `CaptureContext` caches shader filenames asynchronously via ReplayController debug info parsing upon capture load.
+
 ## Policy Differences from Upstream
 
 - LLM-assisted development is permitted (see [CONTRIBUTING.md](docs/CONTRIBUTING.md))

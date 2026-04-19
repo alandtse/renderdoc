@@ -1520,6 +1520,15 @@ rdcarray<PixelModification> ReplayController::PixelHistory(ResourceId target, ui
       case ResourceUsage::TS_Resource:
       case ResourceUsage::MS_Resource:
       case ResourceUsage::All_Resource:
+      case ResourceUsage::VS_Shader:
+      case ResourceUsage::HS_Shader:
+      case ResourceUsage::DS_Shader:
+      case ResourceUsage::GS_Shader:
+      case ResourceUsage::PS_Shader:
+      case ResourceUsage::CS_Shader:
+      case ResourceUsage::TS_Shader:
+      case ResourceUsage::MS_Shader:
+      case ResourceUsage::All_Shader:
       case ResourceUsage::InputTarget:
       case ResourceUsage::CopySrc:
       case ResourceUsage::ResolveSrc:

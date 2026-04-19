@@ -46,7 +46,7 @@ struct ObjectForwarder : Obj
   Obj &m_Obj;
 
   template <typename F, typename... paramTypes>
-  void InvokeVoidFunction(F ptr, paramTypes... params)
+  void InvokeVoidFunction(F ptr, paramTypes... params) const
   {
     if(!GUIInvoke::onUIThread())
     {
@@ -63,7 +63,7 @@ struct ObjectForwarder : Obj
   }
 
   template <typename R, typename F, typename... paramTypes>
-  R InvokeRetFunction(F ptr, paramTypes... params)
+  R InvokeRetFunction(F ptr, paramTypes... params) const
   {
     if(!GUIInvoke::onUIThread())
     {
@@ -856,6 +856,10 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
   virtual void ShowPixelDebugSyncPanel() override
   {
     InvokeVoidFunction(&ICaptureContext::ShowPixelDebugSyncPanel);
+  }
+  virtual rdcarray<rdcstr> GetShaderFilenames(ResourceId id) const override
+  {
+    return InvokeRetFunction<rdcarray<rdcstr>>(&ICaptureContext::GetShaderFilenames, id);
   }
   virtual IShaderViewer *EditShader(ResourceId id, ShaderStage stage, const rdcstr &entryPoint,
                                     const rdcstrpairs &files, KnownShaderTool knownTool,

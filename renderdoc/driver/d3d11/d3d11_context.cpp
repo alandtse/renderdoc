@@ -1116,6 +1116,9 @@ void WrappedID3D11DeviceContext::AddUsage(const ActionDescription &a)
   {
     const D3D11RenderState::Shader &sh = *shArr[s];
 
+    if(sh.Object)
+      m_ResourceUses[GetIDForDeviceChild(sh.Object)].push_back(EventUsage(e, ShaderUsage(s)));
+
     for(int i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
       if(sh.Used_CB(i))
         m_ResourceUses[GetIDForDeviceChild(sh.ConstantBuffers[i])].push_back(

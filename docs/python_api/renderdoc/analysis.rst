@@ -50,6 +50,7 @@ Resource Usage
 .. autofunction:: renderdoc.ResUsage
 .. autofunction:: renderdoc.RWResUsage
 .. autofunction:: renderdoc.CBUsage
+.. autofunction:: renderdoc.ShaderUsage
 
 Texture Saving
 --------------

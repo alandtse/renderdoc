@@ -1569,6 +1569,16 @@ QString ToQStr(const ResourceUsage usage, const GraphicsAPI apitype)
       case ResourceUsage::MS_RWResource: return lit("MS - UAV");
       case ResourceUsage::All_RWResource: return lit("All - UAV");
 
+      case ResourceUsage::VS_Shader: return lit("VS - Shader");
+      case ResourceUsage::GS_Shader: return lit("GS - Shader");
+      case ResourceUsage::HS_Shader: return lit("HS - Shader");
+      case ResourceUsage::DS_Shader: return lit("DS - Shader");
+      case ResourceUsage::PS_Shader: return lit("PS - Shader");
+      case ResourceUsage::CS_Shader: return lit("CS - Shader");
+      case ResourceUsage::TS_Shader: return lit("AS - Shader");
+      case ResourceUsage::MS_Shader: return lit("MS - Shader");
+      case ResourceUsage::All_Shader: return lit("All - Shader");
+
       case ResourceUsage::InputTarget: return lit("Color Input");
       case ResourceUsage::ColorTarget: return lit("Rendertarget");
       case ResourceUsage::DepthStencilTarget: return lit("Depthstencil");
@@ -1633,6 +1643,16 @@ QString ToQStr(const ResourceUsage usage, const GraphicsAPI apitype)
       case ResourceUsage::TS_RWResource: return lit("TS - Image/SSBO");
       case ResourceUsage::MS_RWResource: return lit("MS - Image/SSBO");
       case ResourceUsage::All_RWResource: return lit("All - Image/SSBO");
+
+      case ResourceUsage::VS_Shader: return lit("VS - Shader");
+      case ResourceUsage::GS_Shader: return lit("GS - Shader");
+      case ResourceUsage::HS_Shader: return lit("TCS - Shader");
+      case ResourceUsage::DS_Shader: return lit("TES - Shader");
+      case ResourceUsage::PS_Shader: return lit("FS - Shader");
+      case ResourceUsage::CS_Shader: return lit("CS - Shader");
+      case ResourceUsage::TS_Shader: return lit("TS - Shader");
+      case ResourceUsage::MS_Shader: return lit("MS - Shader");
+      case ResourceUsage::All_Shader: return lit("All - Shader");
 
       case ResourceUsage::InputTarget: return lit("FB Input");
       case ResourceUsage::ColorTarget: return lit("FB Color");
