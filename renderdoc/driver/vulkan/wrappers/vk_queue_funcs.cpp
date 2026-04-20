@@ -55,14 +55,8 @@ bool WrappedVulkan::Serialise_vkGetDeviceQueue(SerialiserType &ser, VkDevice dev
 
     ObjDisp(device)->GetDeviceQueue(Unwrap(device), remapFamily, remapIndex, &queue);
 
-    if(GetResourceManager()->HasWrapper(ToTypedHandle(queue)))
-    {
-      ResourceId live = GetResourceManager()->GetDispWrapper(queue)->id;
+    GetResourceManager()->OverrideWrapper(ToTypedHandle(queue));
 
-      // whenever the new ID is requested, return the old ID, via replacements.
-      GetResourceManager()->ReplaceResource(Queue, live);
-    }
-    else
     {
       GetResourceManager()->WrapResource(Queue, Unwrap(device), queue);
     }
@@ -638,6 +632,7 @@ void WrappedVulkan::InsertActionsAndRefreshIDs(BakedCmdBufferInfo &cmdBufInfo)
     localAnnotations = m_RootAnnotation->Duplicate();
 
   size_t curAnnot = 0;
+  int32_t totalEIDShift = 0;
 
   rdcarray<VulkanActionTreeNode> &cmdBufNodes = cmdBufInfo.action->children;
 
@@ -717,6 +712,7 @@ void WrappedVulkan::InsertActionsAndRefreshIDs(BakedCmdBufferInfo &cmdBufInfo)
 
         // this can be negative if indirectCount is 0
         int32_t eidShift = indirectCount - 1;
+        totalEIDShift += eidShift;
 
         // we reserved one event and action for the indirect count based action.
         // if we ended up with a different number eidShift will be non-zero, so we need to adjust
@@ -946,6 +942,15 @@ void WrappedVulkan::InsertActionsAndRefreshIDs(BakedCmdBufferInfo &cmdBufInfo)
     // similarly for a pop, but don't pop off the root
     if((cmdBufNodes[i].action.flags & ActionFlags::PopMarker) && GetActionStack().size() > 1)
       GetActionStack().pop_back();
+  }
+
+  if(totalEIDShift != 0)
+  {
+    // Move the loose events and resource usage by the total EID shift
+    for(auto it = cmdBufInfo.curEvents.begin(); it != cmdBufInfo.curEvents.end(); ++it)
+      it->eventId += totalEIDShift;
+    for(auto it = cmdBufInfo.resourceUsage.begin(); it != cmdBufInfo.resourceUsage.end(); ++it)
+      it->second.eventId += totalEIDShift;
   }
 
   delete localAnnotations;
