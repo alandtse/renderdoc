@@ -50,7 +50,14 @@ Resource Usage
 .. autofunction:: renderdoc.ResUsage
 .. autofunction:: renderdoc.RWResUsage
 .. autofunction:: renderdoc.CBUsage
-.. autofunction:: renderdoc.ShaderUsage
+
+.. py:function:: renderdoc.ShaderUsage(stage)
+
+   Calculate the ``ResourceUsage`` value for a shader object use at a given shader stage.
+
+   :param ShaderStage stage: The shader stage.
+   :return: The value for shader object usage at a given shader stage.
+   :rtype: ResourceUsage
 
 Texture Saving
 --------------
