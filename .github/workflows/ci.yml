@@ -52,11 +52,13 @@ jobs:
         AFTER="${{ github.sha }}"
         if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
           # New branch: check commits since last upstream-sync merge.
-          BASE=$(git log --oneline --grep="chore(upstream-sync):" | head -1 | awk '{print $1}')
+          BASE=$(git log --first-parent --oneline --grep="chore(upstream-sync):" | head -1 | awk '{print $1}')
           [ -z "$BASE" ] && BASE=$(git rev-list --max-parents=0 HEAD)
-          git log --oneline ${BASE}..HEAD > commits
+          git log --first-parent --oneline ${BASE}..HEAD > commits
         else
-          git log --oneline ${BEFORE}..${AFTER} > commits
+          # --first-parent avoids walking into upstream sync merges and
+          # flagging upstream commits that exceed our length limit.
+          git log --first-parent --oneline ${BEFORE}..${AFTER} > commits
         fi
         echo "Checking pushed commits:"
         cat commits
