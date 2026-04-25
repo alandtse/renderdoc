@@ -165,6 +165,27 @@ force-loading a PDB after the initial symbol resolution pass.
 
 ---
 
+### Allow Vendor Extensions (NVAPI/DLSS) Capture Option
+
+Adds an **Allow Vendor Extensions (NVAPI/DLSS)** checkbox to the Capture Dialog (off by default).
+When enabled, NVAPI functions — including those used by Streamline/DLSS — are passed through to
+the application rather than stubbed. This allows vendor-extension-driven passes (e.g. DLSS upscaling
+dispatches) to appear in the capture: their pipeline stages, resource bindings, and texture
+inputs/outputs become visible. Shader replay accuracy is not guaranteed and may be broken.
+
+A prominent tooltip warns that this option is explicitly unsupported and may cause crashes or
+incorrect replay.
+
+**Changes:**
+- `renderdoc/api/replay/capture_options.h` — adds `bool allowVendorExtensions` field to `CaptureOptions`
+- `renderdoc/replay/capture_options.cpp` — defaults the field to `false`
+- `renderdoc/core/core.cpp` — `SetCaptureOptions()` calls `EnableVendorExtensions(VendorExtensions::NvAPI)` when the field is true
+- `qrenderdoc/Windows/Dialogs/CaptureDialog.ui` — new checkbox wired to the field
+- `qrenderdoc/Windows/Dialogs/CaptureDialog.cpp` — `SetSettings`/`Settings()` read and write the field
+- `qrenderdoc/Code/Interface/QRDInterface.cpp` — JSON serialization/deserialization for the new field
+
+---
+
 ### Shader Source Names as First-Class Support
 
 Exposes full shader source filenames natively to RenderDoc's UI components, allowing easy filtering and discovery of API events by matching real source code filenames instead of just numerical IDs or pipeline states.
@@ -176,7 +197,7 @@ Exposes full shader source filenames natively to RenderDoc's UI components, allo
 **Changes:**
 - Extends the D3D11 driver (`WrappedID3D11DeviceContext::AddUsage`) to capture shader device child bindings into the `m_ResourceUses` array at capture chunk load time.
 - Modifies `ResourceUsage` enums and UI formatters (`QRDUtils`) to gracefully handle explicit shader stages (e.g. `VS_Shader`, `PS_Shader`).
-- `CaptureContext` caches shader filenames asynchronously via ReplayController debug info parsing upon capture load.
+- `CaptureContext` builds the shader filename cache lazily on first `$shader()` filter use via `EnsureShaderFilenamesCached()`, showing a progress dialog for slow captures. This avoids any overhead at capture load time and during event navigation.
 
 ## Policy Differences from Upstream
 

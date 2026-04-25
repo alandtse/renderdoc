@@ -246,6 +246,25 @@ Default - 0 Megabytes
 :type: int
 )");
   uint32_t softMemoryLimit;
+
+  DOCUMENT(R"(Allow vendor-specific extensions such as NVAPI to pass through to the application
+instead of being blocked or stubbed.
+
+.. warning::
+
+  This option is **explicitly unsupported** and may cause crashes, incorrect replay,
+  or other problems. Enable only if you understand the consequences and need to inspect
+  vendor-extension-driven passes (e.g. DLSS/Streamline) at the cost of replay accuracy.
+
+Default - disabled
+
+``True`` - Vendor extensions (e.g. NVAPI) are passed through to the application.
+
+``False`` - Vendor extensions are blocked or stubbed (default, safe behaviour).
+
+:type: bool
+)");
+  bool allowVendorExtensions;
 };
 
 DECLARE_REFLECTION_STRUCT(CaptureOptions);

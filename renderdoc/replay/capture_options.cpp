@@ -191,6 +191,7 @@ CaptureOptions::CaptureOptions()
   captureAllCmdLists = false;
   debugOutputMute = true;
   softMemoryLimit = 0;
+  allowVendorExtensions = false;
 }
 
 #if ENABLED(ENABLE_UNIT_TESTS)

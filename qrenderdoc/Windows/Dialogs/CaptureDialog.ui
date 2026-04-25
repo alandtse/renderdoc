@@ -530,6 +530,16 @@
        </widget>
       </item>
       <item>
+       <widget class="QCheckBox" name="AllowVendorExtensions">
+        <property name="toolTip">
+         <string>WARNING: Explicitly unsupported. Allow vendor-specific extensions (e.g. NVAPI/DLSS/Streamline) to pass through instead of being blocked. May cause crashes or incorrect replay. Enables inspection of vendor-extension-driven passes at the cost of replay accuracy.</string>
+        </property>
+        <property name="text">
+         <string>Allow Vendor Extensions (NVAPI/DLSS)</string>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="QFrame" name="SoftMemoryLimitFrame">
         <property name="sizePolicy">
          <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
