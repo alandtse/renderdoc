@@ -1167,14 +1167,11 @@ void CaptureContext::LoadCaptureThreaded(const QString &captureFile, const Repla
   m_CaptureLoaded = true;
 }
 
-void CaptureContext::CacheResources(bool clear)
+void CaptureContext::CacheResources()
 {
   m_CustomNameCachedID++;
 
-  if(clear)
-  {
-    m_Resources.clear();
-  }
+  m_Resources.clear();
 
   std::sort(m_ResourceList.begin(), m_ResourceList.end(),
             [this](const ResourceDescription &a, const ResourceDescription &b) {
@@ -1191,55 +1188,51 @@ void CaptureContext::CacheResources(bool clear)
     }
   }
 
-  // If requested, clear immediately in UI thread, then queue background fetch
-  if(clear)
-  {
-    m_ShaderFilenames.clear();
-  }
-  int gen = m_ShaderFilenameGen.fetch_add(1) + 1;
+  m_ShaderFilenames.clear();
+}
 
-  if(!shaders.empty())
-  {
-    m_Replay.AsyncInvoke(lit("CacheShaderFilenames"), [this, shaders, gen](IReplayController *r) {
-      QMap<ResourceId, rdcarray<rdcstr>> tempShaderFilenames;
+void CaptureContext::EnsureShaderFilenamesCached()
+{
+  if(!m_ShaderFilenames.isEmpty())
+    return;
 
-      int i = 0;
-      for(ResourceId id : shaders)
-      {
-        if(gen != m_ShaderFilenameGen.load())
-          return;
+  rdcarray<ResourceId> shaders;
+  for(const ResourceDescription &res : m_ResourceList)
+    if(res.type == ResourceType::Shader)
+      shaders.push_back(res.resourceId);
 
-        if((++i % 100) == 0)
-          QThread::yieldCurrentThread();
+  if(shaders.empty())
+    return;
 
-        const ShaderReflection *refl = r->GetShader(ResourceId(), id, ShaderEntryPoint());
-        if(refl && refl->debugInfo.files.count() > 0)
+  bool done = false;
+  QMap<ResourceId, rdcarray<rdcstr>> tempFilenames;
+
+  m_Replay.AsyncInvoke(
+      lit("CacheShaderFilenames"), [&done, &tempFilenames, shaders](IReplayController *r) {
+        for(ResourceId id : shaders)
         {
-          rdcarray<rdcstr> filenames;
-          for(const ShaderSourceFile &file : refl->debugInfo.files)
+          const ShaderReflection *refl = r->GetShader(ResourceId(), id, ShaderEntryPoint());
+          if(refl && refl->debugInfo.files.count() > 0)
           {
-            if(!file.filename.empty())
-            {
-              filenames.push_back(file.filename);
-            }
-          }
-          if(!filenames.empty())
-          {
-            tempShaderFilenames[id] = filenames;
+            rdcarray<rdcstr> filenames;
+            for(const ShaderSourceFile &file : refl->debugInfo.files)
+              if(!file.filename.empty())
+                filenames.push_back(file.filename);
+            if(!filenames.empty())
+              tempFilenames[id] = filenames;
           }
         }
-      }
-
-      GUIInvoke::call(m_MainWindow, [this, tempShaderFilenames, gen]() {
-        if(gen == m_ShaderFilenameGen.load())
-        {
-          m_ShaderFilenames = tempShaderFilenames;
-          // Optionally trigger a UI refresh to pick up the new filterability
-          m_CustomNameCachedID++;
-        }
+        done = true;
       });
-    });
-  }
+
+  for(int i = 0; !done && i < 100; i++)
+    QThread::msleep(5);
+
+  ShowProgressDialog(m_MainWindow->Widget(), tr("Building shader index..."),
+                     [&done]() { return done; });
+
+  m_ShaderFilenames = tempFilenames;
+  m_CustomNameCachedID++;
 }
 
 void CaptureContext::RecompressCapture()
@@ -1481,7 +1474,6 @@ bool CaptureContext::SaveCaptureTo(const rdcstr &captureFile)
 void CaptureContext::CloseCapture()
 {
   m_ShaderFilenames.clear();
-  m_ShaderFilenameGen.fetch_add(1);
 
   if(!m_CaptureLoaded)
     return;
@@ -2099,8 +2091,6 @@ void CaptureContext::LoadEdits(const QString &data)
 void CaptureContext::ClearReplayCache()
 {
   m_CustomNameCachedID++;
-
-  CacheResources(false);
 
   Replay().AsyncInvoke([](IReplayController *r) { r->ClearReplayCache(); });
 }

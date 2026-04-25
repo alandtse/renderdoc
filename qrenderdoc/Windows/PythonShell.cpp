@@ -861,6 +861,10 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
   {
     return InvokeRetFunction<rdcarray<rdcstr>>(&ICaptureContext::GetShaderFilenames, id);
   }
+  virtual void EnsureShaderFilenamesCached() override
+  {
+    InvokeVoidFunction(&ICaptureContext::EnsureShaderFilenamesCached);
+  }
   virtual IShaderViewer *EditShader(ResourceId id, ShaderStage stage, const rdcstr &entryPoint,
                                     const rdcstrpairs &files, KnownShaderTool knownTool,
                                     ShaderEncoding shaderEncoding, ShaderCompileFlags flags,
