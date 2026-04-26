@@ -145,6 +145,19 @@ void PipelineFlowChart::setStagesEnabled(const QList<bool> &enabled)
   for(int i = 0; i < enabled.count() && i < m_StagesEnabled.count(); i++)
     m_StagesEnabled[i] = enabled[i];
 
+  // if the selected stage is no longer active, jump to the first that is
+  if(!stageEnabled(m_SelectedStage))
+  {
+    for(int i = 0; i < m_StagesEnabled.count(); i++)
+    {
+      if(m_StagesEnabled[i])
+      {
+        setSelectedStage(i);
+        break;
+      }
+    }
+  }
+
   update();
 }
 
