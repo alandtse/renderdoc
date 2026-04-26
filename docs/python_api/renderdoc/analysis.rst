@@ -51,7 +51,7 @@ Resource Usage
 .. autofunction:: renderdoc.RWResUsage
 .. autofunction:: renderdoc.CBUsage
 
-.. py:function:: renderdoc.ShaderUsage(stage)
+.. py:function:: ShaderUsage(stage)
 
    Calculate the ``ResourceUsage`` value for a shader object use at a given shader stage.
 

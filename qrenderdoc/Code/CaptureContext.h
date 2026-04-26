@@ -413,6 +413,7 @@ private:
 
   QMap<ResourceId, QString> m_CustomNames;
   QMap<ResourceId, rdcarray<rdcstr>> m_ShaderFilenames;
+  bool m_ShaderFilenamesCached = false;
   int m_CustomNameCachedID = 1;
 
   // map orig replaced -> edited replacement ID

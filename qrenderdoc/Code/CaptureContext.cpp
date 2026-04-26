@@ -1189,11 +1189,12 @@ void CaptureContext::CacheResources()
   }
 
   m_ShaderFilenames.clear();
+  m_ShaderFilenamesCached = false;
 }
 
 void CaptureContext::EnsureShaderFilenamesCached()
 {
-  if(!m_ShaderFilenames.isEmpty())
+  if(m_ShaderFilenamesCached)
     return;
 
   rdcarray<ResourceId> shaders;
@@ -1232,6 +1233,7 @@ void CaptureContext::EnsureShaderFilenamesCached()
                      [&done]() { return done; });
 
   m_ShaderFilenames = tempFilenames;
+  m_ShaderFilenamesCached = true;
   m_CustomNameCachedID++;
 }
 
@@ -1474,6 +1476,7 @@ bool CaptureContext::SaveCaptureTo(const rdcstr &captureFile)
 void CaptureContext::CloseCapture()
 {
   m_ShaderFilenames.clear();
+  m_ShaderFilenamesCached = false;
 
   if(!m_CaptureLoaded)
     return;
