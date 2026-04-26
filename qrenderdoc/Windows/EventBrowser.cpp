@@ -3066,6 +3066,8 @@ nesting level.
     if(searchName.startsWith(lit("\"")) && searchName.endsWith(lit("\"")))
       searchName = searchName.mid(1, searchName.length() - 2);
 
+    m_Ctx.EnsureShaderFilenamesCached();
+
     QSet<uint32_t> matchingEIDs;
 
     rdcarray<ResourceId> matchingResources;

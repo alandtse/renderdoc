@@ -2458,6 +2458,12 @@ the resource type.
 )");
   virtual rdcarray<rdcstr> GetShaderFilenames(ResourceId id) const = 0;
 
+  DOCUMENT(R"(Ensure the shader debug filename cache is populated, building it synchronously if
+needed. This is a blocking call on the replay thread and is safe to call at any point on the UI
+thread. Subsequent calls are free once the cache is built.
+)");
+  virtual void EnsureShaderFilenamesCached() = 0;
+
   DOCUMENT(R"(Returns the same name as :meth:`GetResourceName` but without any added suffix, e.g. to
 indicate the resource's status such as (Edited).
 
