@@ -1629,6 +1629,9 @@ protected:
   // Returns true only when the item matched because of the filter expression itself,
   // excluding the always-included root/frame-start nodes. Used for ancestor checks
   // so those special nodes don't accidentally make all children pass the filter.
+  // Note: when m_EmptyRegionsVisible is false, filterAcceptsSingleRow forces any
+  // node with children to fail, so marker regions can never directly match here
+  // and the ancestor-expand path is a no-op in that mode (intentional).
   bool filterMatchedByExpression(int source_row, const QModelIndex &source_parent) const
   {
     if(!source_parent.isValid() ||
