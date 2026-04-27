@@ -5149,6 +5149,7 @@ void EventBrowser::filter_apply()
   // is immediately reachable without manual expand clicks
   if(!filters.empty())
   {
+    ui->events->setUpdatesEnabled(false);
     std::function<void(QModelIndex)> expandAllVisible = [&](QModelIndex proxyParent) {
       int rows = m_FilterModel->rowCount(proxyParent);
       for(int i = 0; i < rows; i++)
@@ -5162,6 +5163,7 @@ void EventBrowser::filter_apply()
       }
     };
     expandAllVisible(QModelIndex());
+    ui->events->setUpdatesEnabled(true);
   }
 
   ui->events->setCurrentIndex(m_FilterModel->mapFromSource(m_Model->GetIndexForEID(curSelEvent)));
