@@ -138,7 +138,7 @@ Test output lands in `artifacts/` and is browser-viewable.
 
 ## Commit Guidelines
 
-- Subject line: **65 characters max**, then a blank line, then optional body. CI checks the final squash-merged subject (which includes GitHub's appended ` (#N)` ref), so the pre-merge branch commit must also stay within 65 chars.
+- Subject line: **65 characters max** before merge, then a blank line, then optional body. CI checks the final squash-merged subject against a 72-char limit (the conventional git max) — the extra 7 chars are reserved for GitHub's appended ` (#NNN)` PR ref.
 - No merge commits in PRs — use `git rebase` against `dev` to stay current
 - Formatting/compile-fix commits must be squashed into the commit they fix
 - Keep PRs under ~1000 lines; split large features into incremental chunks
