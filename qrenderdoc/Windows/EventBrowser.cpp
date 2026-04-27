@@ -1603,6 +1603,17 @@ public:
 protected:
   virtual bool filterAcceptsRow(int source_row, const QModelIndex &source_parent) const override
   {
+    // if any ancestor directly matched the filter expression (not just the
+    // always-included root nodes), show all descendants so a matched region's
+    // contents are visible without requiring manual expansion
+    QModelIndex anc = source_parent;
+    while(anc.isValid())
+    {
+      if(filterMatchedByExpression(anc.row(), anc.parent()))
+        return true;
+      anc = anc.parent();
+    }
+
     // manually implement recursive filtering since older Qt versions don't support it
     if(filterAcceptsSingleRow(source_row, source_parent))
       return true;
@@ -1613,6 +1624,20 @@ protected:
         return true;
 
     return false;
+  }
+
+  // Returns true only when the item matched because of the filter expression itself,
+  // excluding the always-included root/frame-start nodes. Used for ancestor checks
+  // so those special nodes don't accidentally make all children pass the filter.
+  // Note: when m_EmptyRegionsVisible is false, filterAcceptsSingleRow forces any
+  // node with children to fail, so marker regions can never directly match here
+  // and the ancestor-expand path is a no-op in that mode (intentional).
+  bool filterMatchedByExpression(int source_row, const QModelIndex &source_parent) const
+  {
+    if(!source_parent.isValid() ||
+       (source_parent.internalId() == EventItemModel::TagRoot && source_row == 0))
+      return false;
+    return filterAcceptsSingleRow(source_row, source_parent);
   }
 
   virtual bool filterAcceptsSingleRow(int source_row, const QModelIndex &source_parent) const
@@ -5123,6 +5148,27 @@ void EventBrowser::filter_apply()
 
   ui->events->applyExpansion(m_EventsExpansion, keygen);
 
+  // when a filter is active, expand all visible regions so every matching result
+  // is immediately reachable without manual expand clicks
+  if(!filters.empty())
+  {
+    ui->events->setUpdatesEnabled(false);
+    std::function<void(QModelIndex)> expandAllVisible = [&](QModelIndex proxyParent) {
+      int rows = m_FilterModel->rowCount(proxyParent);
+      for(int i = 0; i < rows; i++)
+      {
+        QModelIndex proxyIdx = m_FilterModel->index(i, 0, proxyParent);
+        if(m_FilterModel->rowCount(proxyIdx) > 0)
+        {
+          ui->events->expand(proxyIdx);
+          expandAllVisible(proxyIdx);
+        }
+      }
+    };
+    expandAllVisible(QModelIndex());
+    ui->events->setUpdatesEnabled(true);
+  }
+
   ui->events->setCurrentIndex(m_FilterModel->mapFromSource(m_Model->GetIndexForEID(curSelEvent)));
 }
 
@@ -5674,6 +5720,18 @@ void EventBrowser::events_keyPress(QKeyEvent *event)
   if(event->key() == Qt::Key_F3)
   {
     FindNext(event->modifiers() & Qt::ShiftModifier ? false : true);
+  }
+
+  // * (or numpad *) recursively expands all children of the current node,
+  // matching the standard Windows tree-view shortcut
+  if(event->key() == Qt::Key_Asterisk)
+  {
+    QModelIndex cur = ui->events->currentIndex();
+    if(cur.isValid() && ui->events->model()->rowCount(cur) > 0)
+    {
+      ui->events->expandAll(cur);
+      event->accept();
+    }
   }
 
   if(event->modifiers() == Qt::ControlModifier)
