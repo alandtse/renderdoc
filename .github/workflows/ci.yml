@@ -36,12 +36,14 @@ jobs:
         cat commits
         cut -d ' ' -f2- commits > commit_msgs
         echo ==================
-        if grep -q '.\{66\}' commit_msgs; then
+        # Limit is 72 chars (the conventional git max), to allow up to 65 chars
+        # in the pre-merge subject plus 7 chars for GitHub's appended " (#NNN)".
+        if grep -q '.\{73\}' commit_msgs; then
           (echo -n "::error::";
            echo "Some commit message summary lines are too long. See CONTRIBUTING.md for more information.";
            echo "Invalid commits:";
            echo;
-           grep '.\{66\}' commit_msgs;) | tr '\n' '\001' | sed -e 's#\x01#%0A#g';
+           grep '.\{73\}' commit_msgs;) | tr '\n' '\001' | sed -e 's#\x01#%0A#g';
           exit 1;
         fi
     - name: Check commit messages (Push)
@@ -64,12 +66,14 @@ jobs:
         cat commits
         cut -d ' ' -f2- commits > commit_msgs
         echo ==================
-        if grep -q '.\{66\}' commit_msgs; then
+        # Limit is 72 chars (the conventional git max), to allow up to 65 chars
+        # in the pre-merge subject plus 7 chars for GitHub's appended " (#NNN)".
+        if grep -q '.\{73\}' commit_msgs; then
           (echo -n "::error::";
            echo "Some commit message summary lines are too long. See CONTRIBUTING.md for more information.";
            echo "Invalid commits:";
            echo;
-           grep '.\{66\}' commit_msgs;) | tr '\n' '\001' | sed -e 's#\x01#%0A#g';
+           grep '.\{73\}' commit_msgs;) | tr '\n' '\001' | sed -e 's#\x01#%0A#g';
           exit 1;
         fi
   clang-format:
