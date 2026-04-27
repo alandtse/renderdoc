@@ -2130,7 +2130,7 @@ void RenderDoc::SetCaptureOptions(const CaptureOptions &opts)
 {
   m_Options = opts;
 
-  if(opts.allowVendorExtensions)
+  if(opts.allowVendorExtensions && !IsVendorExtensionEnabled(VendorExtensions::NvAPI))
     EnableVendorExtensions(VendorExtensions::NvAPI);
 
   LibraryHooks::OptionsUpdated();

@@ -52,9 +52,14 @@ int RENDERDOC_CC SetCaptureOptionU32(RENDERDOC_CaptureOption opt, uint32_t val)
     case eRENDERDOC_Option_DebugOutputMute: opts.debugOutputMute = (val != 0); break;
     case eRENDERDOC_Option_AllowUnsupportedVendorExtensions:
       if(val == 0x10DE)
+      {
+        opts.allowVendorExtensions = true;
         RenderDoc::Inst().EnableVendorExtensions(VendorExtensions::NvAPI);
+      }
       else
+      {
         RDCWARN("AllowUnsupportedVendorExtensions unexpected parameter %x", val);
+      }
       break;
     case eRENDERDOC_Option_SoftMemoryLimit: opts.softMemoryLimit = val; break;
     default: RDCLOG("Unrecognised capture option '%d'", opt); return 0;
