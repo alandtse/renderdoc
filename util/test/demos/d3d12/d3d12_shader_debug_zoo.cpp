@@ -1210,9 +1210,9 @@ float4 main(v2f IN) : SV_Target0
   if(IN.tri == 4)
   {
     float4 Color = float4(0,0,0,0);
-    float floatA = IN.tri/100.0 + 1.5f;
-    float floatB = IN.tri/100.0 + 1.7f;
-    float floatC = IN.tri/100.0 + 2.5f;
+    float floatA = zero + 1.5f;
+    float floatB = zero + 1.75f;
+    float floatC = zero + 2.5f;
     DOUBLE doubleA = (DOUBLE)floatA; 
     DOUBLE doubleB = (DOUBLE)floatB;
     DOUBLE doubleC = (DOUBLE)floatC;
@@ -1323,10 +1323,10 @@ float4 main(v2f IN) : SV_Target0
   if(IN.tri == 11)
   {
     float4 Color = float4(0,0,0,0);
-    float3 floatA = float3(IN.tri/100.0 + 1.5f, IN.tri/100.0 + 1.7f, IN.tri/100.0 + 2.7f);
-    float3 floatB = float3(IN.tri/100.0 - 1.5f, IN.tri/100.0 + 1.7f, IN.tri/100.0 - 2.7f);
-    vector<HALF, 3> halfA = {IN.tri/100.0 + 1.5f, IN.tri/100.0 + 1.7f, IN.tri/100.0 + 2.7f};
-    vector<HALF, 3> halfB = {IN.tri/100.0 - 1.5f, IN.tri/100.0 - 1.7f, IN.tri/100.0 - 2.7f};
+    float3 floatA = float3(zero + 1.5f, zero + 1.75f, zero + 2.75f);
+    float3 floatB = float3(zero - 1.5f, zero + 1.75f, zero - 2.75f);
+    vector<HALF, 3> halfA = {zero + 1.5f, zero + 1.75f, zero + 2.75f};
+    vector<HALF, 3> halfB = {zero - 1.5f, zero - 1.75f, zero - 2.75f};
 
     HALF half_val = dot(halfA, halfB);
     float float_val = dot(floatA, floatB);
@@ -1334,13 +1334,13 @@ float4 main(v2f IN) : SV_Target0
     Color.y = (float)half_val * 1000.0;
     return Color;
   }
-  if(IN.tri == 12)
+  if(zero == 12)
   {
     float4 Color = float4(0,0,0,0);
-    float4 floatA = float4(IN.tri/100.0 + 1.5f, IN.tri/100.0 + 1.7f, IN.tri/100.0 + 2.7f, IN.tri/100.0 + 3.7f);
-    float4 floatB = float4(IN.tri/100.0 - 1.5f, IN.tri/100.0 - 1.7f, IN.tri/100.0 - 2.7f, IN.tri/100.0 - 3.7f);
-    vector<HALF, 4> halfA = {IN.tri + 1.5f, IN.tri + 1.7f, IN.tri + 2.7f, IN.tri + 3.7f};
-    vector<HALF, 4> halfB = {IN.tri - 1.5f, IN.tri - 1.7f, IN.tri - 2.7f, IN.tri - 3.7f};
+    float4 floatA = float4(zero + 1.5f, zero + 1.75f, zero + 2.75f, zero + 3.75f);
+    float4 floatB = float4(zero - 1.5f, zero - 1.75f, zero - 2.75f, zero - 3.75f);
+    vector<HALF, 4> halfA = {zero + 1.5f, zero + 1.75f, zero + 2.75f, zero + 3.75f};
+    vector<HALF, 4> halfB = {zero - 1.5f, zero - 1.75f, zero - 2.75f, zero - 3.75f};
 
     HALF half_val = dot(halfA, halfB);
     float float_val = dot(floatA, floatB);
@@ -1686,7 +1686,11 @@ struct v2f
   float2 uv : TEXCOORD0;
 };
 
-float4 main(v2f IN, uint samp : SV_SampleIndex, float3 bary : SV_Barycentrics) : SV_Target0 
+float4 main(v2f IN, uint samp : SV_SampleIndex
+#if SUPPORTS_BARY
+            , float3 bary : SV_Barycentrics
+#endif
+) : SV_Target0 
 {
   float2 uvCentroid = EvaluateAttributeCentroid(IN.uv);
   float2 uvSamp0 = EvaluateAttributeAtSample(IN.uv, 0) - IN.uv;
@@ -1697,7 +1701,9 @@ float4 main(v2f IN, uint samp : SV_SampleIndex, float3 bary : SV_Barycentrics) :
   float y = (uvSamp0.x + uvSamp0.y) * 0.5f;
   float z = (uvSampThis.x + uvSampThis.y) * 0.5f;
   float w = (uvOffset.x + uvOffset.y) * 0.5f;
+#if SUPPORTS_BARY
   w += x * bary.x + y * bary.y + z * bary.z;
+#endif
 
   // Test sampleinfo with a MSAA rasterizer
   uint numSamples = GetRenderTargetSampleCount();
@@ -1944,6 +1950,7 @@ void main(uint3 inDTID : SV_DispatchThreadID, uint3 inGID : SV_GroupThreadID, ui
 
     bool supportSM60 = (m_HighestShaderModel >= D3D_SHADER_MODEL_6_0) && m_DXILSupport;
     bool supportSM61 = (m_HighestShaderModel >= D3D_SHADER_MODEL_6_1) && m_DXILSupport;
+    bool supportBary = (opts3.BarycentricsSupported) && m_DXILSupport;
     bool supportSM62 = (m_HighestShaderModel >= D3D_SHADER_MODEL_6_2) && m_DXILSupport;
     bool supportSM66 = (m_HighestShaderModel >= D3D_SHADER_MODEL_6_6) && m_DXILSupport;
     TEST_ASSERT(!supportSM62 || supportSM60, "SM 6.2 requires SM 6.0 support");
@@ -2590,11 +2597,16 @@ void main(uint3 inDTID : SV_DispatchThreadID, uint3 inGID : SV_GroupThreadID, ui
 
       if(supportSM61)
       {
+        std::string defines = "#define SUPPORTS_BARY ";
+
+        defines += supportBary ? "1" : "0";
+        defines += "\n";
+
         msaaPSOs[2] = MakePSO()
                           .RootSig(sigmsaa)
                           .InputLayout()
                           .VS(Compile(D3DDefaultVertex, "main", "vs_6_1"))
-                          .PS(Compile(msaaPixel61, "main", "ps_6_1"))
+                          .PS(Compile(defines + msaaPixel61, "main", "ps_6_1"))
                           .SampleCount(4)
                           .RTVs({DXGI_FORMAT_R32G32B32A32_FLOAT});
       }
