@@ -26,11 +26,13 @@ repos:
       - id: trailing-whitespace
         types_or: [c, c++, objective-c]
         files: ^(qrenderdoc|renderdoc|renderdoccmd|renderdocshim|util/test/demos)/
-        exclude: /(3rdparty|official)/
+        # resource.h are UTF-16 Windows resource headers; clang_format_all.sh
+        # skips them and they must not be touched by text-fixing hooks.
+        exclude: (/(3rdparty|official)/|resource\.h$)
       - id: end-of-file-fixer
         types_or: [c, c++, objective-c]
         files: ^(qrenderdoc|renderdoc|renderdoccmd|renderdocshim|util/test/demos)/
-        exclude: /(3rdparty|official)/
+        exclude: (/(3rdparty|official)/|resource\.h$)
       - id: check-added-large-files
 
   - repo: https://github.com/pre-commit/mirrors-clang-format
@@ -39,4 +41,4 @@ repos:
       - id: clang-format
         types_or: [c, c++, objective-c]
         files: ^(qrenderdoc|renderdoc|renderdoccmd|renderdocshim|util/test/demos)/
-        exclude: /(3rdparty|official)/
+        exclude: (/(3rdparty|official)/|resource\.h$)
