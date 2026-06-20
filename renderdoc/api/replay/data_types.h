@@ -1349,7 +1349,7 @@ struct DrawcallStats
   uint32_t indirect = 0;
 
   DOCUMENT(R"(A :class:`bucketed <BucketType>` list over the number of instances in the draw.
-      
+
 :type: List[int]
 )");
   rdcarray<uint32_t> counts;
@@ -1626,13 +1626,13 @@ struct RasterizationStats
   uint32_t redundants = 0;
 
   DOCUMENT(R"(A list where the Nth element contains the number of calls that bound N viewports.
-    
+
 :type: List[int]
 )");
   rdcarray<uint32_t> viewports;
 
   DOCUMENT(R"(A list where the Nth element contains the number of calls that bound N scissor rects.
-    
+
 :type: List[int]
 )");
   rdcarray<uint32_t> rects;
@@ -1699,85 +1699,85 @@ struct FrameStatistics
   bool recorded = false;
 
   DOCUMENT(R"(A list of constant buffer bind statistics, one per each :class:`stage <ShaderStage>`.
-  
+
 :type: List[ConstantBindStats]
 )");
   rdcarray<ConstantBindStats> constants;
 
   DOCUMENT(R"(A list of sampler bind statistics, one per each :class:`stage <ShaderStage>`.
-  
+
 :type: List[SamplerBindStats]
 )");
   rdcarray<SamplerBindStats> samplers;
 
   DOCUMENT(R"(A list of resource bind statistics, one per each :class:`stage <ShaderStage>`.
-  
+
 :type: List[ResourceBindStats]
 )");
   rdcarray<ResourceBindStats> resources;
 
   DOCUMENT(R"(Information about resource contents updates.
-  
+
 :type: ResourceUpdateStats
 )");
   ResourceUpdateStats updates = {};
 
   DOCUMENT(R"(Information about drawcalls.
-  
+
 :type: DrawcallStats
 )");
   DrawcallStats draws = {};
 
   DOCUMENT(R"(Information about compute dispatches.
-  
+
 :type: DispatchStats
 )");
   DispatchStats dispatches = {};
 
   DOCUMENT(R"(Information about index buffer binds.
-  
+
 :type: IndexBindStats
 )");
   IndexBindStats indices = {};
 
   DOCUMENT(R"(Information about vertex buffer binds.
-  
+
 :type: VertexBindStats
 )");
   VertexBindStats vertices = {};
 
   DOCUMENT(R"(Information about vertex layout binds.
-  
+
 :type: LayoutBindStats
 )");
   LayoutBindStats layouts = {};
 
   DOCUMENT(R"(A list of shader bind statistics, one per each :class:`stage <ShaderStage>`.
-  
+
 :type: List[ShaderChangeStats]
 )");
   rdcarray<ShaderChangeStats> shaders;
 
   DOCUMENT(R"(Information about blend state binds.
-  
+
 :type: BlendStats
 )");
   BlendStats blends = {};
 
   DOCUMENT(R"(Information about depth-stencil state binds.
-  
+
 :type: DepthStencilStats
 )");
   DepthStencilStats depths = {};
 
   DOCUMENT(R"(Information about rasterizer state binds.
-  
+
 :type: RasterizationStats
 )");
   RasterizationStats rasters = {};
 
   DOCUMENT(R"(Information about output merger and UAV binds.
-  
+
 :type: OutputTargetStats
 )");
   OutputTargetStats outputs = {};

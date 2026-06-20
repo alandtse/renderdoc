@@ -1592,7 +1592,7 @@ struct ImageOperandsAndParamDatas
   IdScope makeTexelAvailable = {};
   IdScope makeTexelVisible = {};
   Id offsets = {};
-  
+
   operator ImageOperands() const { return flags; }
   bool operator &(const ImageOperands v) const { return bool(flags & v); }
   void setNone() { flags |= ImageOperands::None; }
@@ -1650,7 +1650,7 @@ struct LoopControlAndParamDatas
   uint32_t speculatedIterationsALTERA = {};
   uint32_t loopCountALTERA = {};
   uint32_t maxReinvocationDelayALTERA = {};
-  
+
   operator LoopControl() const { return flags; }
   bool operator &(const LoopControl v) const { return bool(flags & v); }
   void setNone() { flags |= LoopControl::None; }
@@ -1704,7 +1704,7 @@ struct MemoryAccessAndParamDatas
   IdScope makePointerVisible = {};
   Id aliasScopeINTELMask = {};
   Id noAliasINTELMask = {};
-  
+
   operator MemoryAccess() const { return flags; }
   bool operator &(const MemoryAccess v) const { return bool(flags & v); }
   void setNone() { flags |= MemoryAccess::None; }
@@ -1842,7 +1842,7 @@ struct ExecutionModeAndParamData
     Id maximumRegistersIdINTEL;
     NamedMaximumNumberOfRegisters namedMaximumRegistersINTEL;
   };
-  
+
   operator ExecutionMode() const { return value; }
   bool operator ==(const ExecutionMode v) const { return value == v; }
 };
@@ -1969,7 +1969,7 @@ struct DecorationAndParamData
     CacheControlLoadINTELParams cacheControlLoadINTEL;
     CacheControlStoreINTELParams cacheControlStoreINTEL;
   };
-  
+
   operator Decoration() const { return value; }
   bool operator ==(const Decoration v) const { return value == v; }
 };
@@ -1980,7 +1980,7 @@ struct TensorAddressingOperandsAndParamDatas
   TensorAddressingOperands flags;
   Id tensorView = {};
   Id decodeFunc = {};
-  
+
   operator TensorAddressingOperands() const { return flags; }
   bool operator &(const TensorAddressingOperands v) const { return bool(flags & v); }
   void setNone() { flags |= TensorAddressingOperands::None; }
@@ -1998,7 +1998,7 @@ struct TensorOperandsAndParamDatas
   Id outOfBoundsValueARM = {};
   Id makeElementAvailableARM = {};
   Id makeElementVisibleARM = {};
-  
+
   operator TensorOperands() const { return flags; }
   bool operator &(const TensorOperands v) const { return bool(flags & v); }
   void setNoneARM() { flags |= TensorOperands::NoneARM; }

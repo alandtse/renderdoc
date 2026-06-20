@@ -843,7 +843,7 @@ float4 main(v2f IN) : SV_Target0
 
   std::string flowPixel = R"EOSHADER(
 
-float4 main(v2f IN) : SV_Target0 
+float4 main(v2f IN) : SV_Target0
 {
   uint zero = IN.tri;
 
@@ -962,7 +962,7 @@ Buffer<float> test : register(t0);
 Texture2D<float4> tex : register(t3);
 SamplerState linearclamp : register(s0);
 
-float4 main(v2f IN, uint samp : SV_SampleIndex) : SV_Target0 
+float4 main(v2f IN, uint samp : SV_SampleIndex) : SV_Target0
 {
   float2 uvCentroid = EvaluateAttributeCentroid(IN.uv);
   float2 uvSamp0 = EvaluateAttributeAtSample(IN.uv, 0) - IN.uv;

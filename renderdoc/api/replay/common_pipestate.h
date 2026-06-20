@@ -234,35 +234,35 @@ struct ColorBlend
   }
 
   DOCUMENT(R"(The blending equation for color values.
-    
+
 :type: BlendEquation
 )");
   BlendEquation colorBlend;
   DOCUMENT(R"(The blending equation for alpha values.
-    
+
 :type: BlendEquation
 )");
   BlendEquation alphaBlend;
 
   DOCUMENT(R"(The :class:`LogicOperation` to use for logic operations, if
 :data:`logicOperationEnabled` is ``True``.
-    
+
 :type: LogicOperation
 )");
   LogicOperation logicOperation = LogicOperation::NoOp;
 
   DOCUMENT(R"(``True`` if blending is enabled for this target.
-    
+
 :type: bool
 )");
   bool enabled = false;
   DOCUMENT(R"(``True`` if the logic operation in :data:`logicOperation` should be used.
-    
+
 :type: bool
 )");
   bool logicOperationEnabled = false;
   DOCUMENT(R"(The mask for writes to the render target.
-    
+
 :type: int
 )");
   byte writeMask = 0;

@@ -62,11 +62,11 @@ void main()
   extra = vec3(6,7,8);
 	EmitStreamVertex(0);
 	EndStreamPrimitive(0);
-	
+
 	a = 9;b = 10;
 	EmitStreamVertex(1);
 	EndStreamPrimitive(1);
-	
+
 	a = 11;b = 12;
 	EmitStreamVertex(1);
 	EndStreamPrimitive(1);
@@ -141,7 +141,7 @@ void main()
   {
     pos *= 0.3f;
     pos.xy += vec2(0.1f);
-    vertOutcol.x = 1.0f; 
+    vertOutcol.x = 1.0f;
   }
 
   vertOutCol2.xy = pos.xy;

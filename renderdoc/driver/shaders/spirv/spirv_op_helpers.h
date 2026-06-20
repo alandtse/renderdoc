@@ -68,7 +68,7 @@ template<>
 inline uint32_t DecodeParam(const ConstIter &it, uint32_t &word)
 {
   if(word >= it.size()) return 0;
-  
+
   uint32_t ret = it.word(word);
   word += 1;
   return ret;
@@ -78,7 +78,7 @@ template<>
 inline Capability DecodeParam(const ConstIter &it, uint32_t &word)
 {
   if(word >= it.size()) return Capability::Invalid;
-  
+
   Capability ret = Capability(word);
   word += 1;
   return ret;
@@ -88,7 +88,7 @@ template<>
 inline Id DecodeParam<Id>(const ConstIter &it, uint32_t &word)
 {
   if(word >= it.size()) return Id();
-  
+
   Id ret = Id::fromWord(it.word(word));
   word += 1;
   return ret;
@@ -98,7 +98,7 @@ template<>
 inline rdcstr DecodeParam<rdcstr>(const ConstIter &it, uint32_t &word)
 {
   if(word >= it.size()) return "";
-  
+
   rdcstr ret = (const char *)&it.word(word);
   word += uint32_t(ret.size() / 4) + 1;
   return ret;
@@ -125,7 +125,7 @@ inline void EncodeParam(rdcarray<uint32_t> &words, const rdcstr &str)
     for(size_t w=0; w < remainingChars && w < 4; w++)
       word |= uint32_t(str[i+w]) << (w*8);
     words.push_back(word);
-    
+
     i += 4;
     if(remainingChars < 4)
       remainingChars = 0;
@@ -143,7 +143,7 @@ template<>
 inline PairIdRefIdRef DecodeParam(const ConstIter &it, uint32_t &word)
 {
   if(word >= it.size()) return {};
-  
+
   PairIdRefIdRef ret = { Id::fromWord(it.word(word)), Id::fromWord(it.word(word+1)) };
   word += 2;
   return ret;
@@ -153,7 +153,7 @@ template<>
 inline PairIdRefLiteralInteger DecodeParam(const ConstIter &it, uint32_t &word)
 {
   if(word >= it.size()) return {};
-  
+
   PairIdRefLiteralInteger ret = { Id::fromWord(it.word(word)), it.word(word+1) };
   word += 2;
   return ret;
@@ -23605,7 +23605,7 @@ struct OpDecoder
 
   static void ForEachID(const ConstIter &it, const std::function<void(Id,bool)> &callback);
   static rdcstr Disassemble(const ConstIter &it, const std::function<rdcstr(Id,Id)> &declName, const std::function<rdcstr(rdcspv::Id)> &idName, const std::function<uint32_t(Id)> &constIntVal);
-  
+
   Op op;
   uint16_t wordCount;
   Id result;

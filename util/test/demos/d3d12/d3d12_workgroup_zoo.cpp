@@ -158,7 +158,7 @@ void main(uint3 inTid : SV_GroupThreadID)
   }
   else if(IsTest(2))
   {
-    // Diverged threads which reconverge 
+    // Diverged threads which reconverge
     if (id < 10)
     {
         // active threads 0-9
@@ -181,7 +181,7 @@ void main(uint3 inTid : SV_GroupThreadID)
   }
   else if(IsTest(3))
   {
-    // Converged threads calling a function 
+    // Converged threads calling a function
     testResult = funcTest(id);
     testResult.y = WaveActiveSum(id);
     AllMemoryBarrierWithGroupSync();
@@ -286,13 +286,13 @@ void main(uint3 inTid : SV_DispatchThreadID)
   {
     uint temp = GetTest() >> 1;
     if(temp == 0)
-      count = 100U; 
+      count = 100U;
     if(temp == 1)
-      count = 200U; 
+      count = 200U;
     if(temp == 2)
-      count = 400U; 
+      count = 400U;
     if(temp == 3)
-      count = 5000U; 
+      count = 5000U;
   }
 
   if(useCpu)

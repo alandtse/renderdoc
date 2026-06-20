@@ -64,7 +64,7 @@ bool Vec16NotEqual(void *a, void *b)
 	{
 		return true;
 	}
-	
+
 	return false;
 #elif ENABLED(RDOC_X64)
   uint64_t *a64 = (uint64_t *)a;

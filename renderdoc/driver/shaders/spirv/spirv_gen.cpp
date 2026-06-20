@@ -2346,7 +2346,7 @@ template<>
 rdcstr ParamToStr(const std::function<rdcstr(rdcspv::Id)> &idName, const rdcspv::ImageOperandsAndParamDatas &el)
 {
   rdcstr ret;
-  
+
   if(el.flags & ImageOperands::None)
     ret += "None" ", ";
   if(el.flags & ImageOperands::Bias)
@@ -2393,7 +2393,7 @@ template<>
 rdcstr ParamToStr(const std::function<rdcstr(rdcspv::Id)> &idName, const rdcspv::LoopControlAndParamDatas &el)
 {
   rdcstr ret;
-  
+
   if(el.flags & LoopControl::None)
     ret += "None" ", ";
   if(el.flags & LoopControl::Unroll)
@@ -2446,7 +2446,7 @@ template<>
 rdcstr ParamToStr(const std::function<rdcstr(rdcspv::Id)> &idName, const rdcspv::MemoryAccessAndParamDatas &el)
 {
   rdcstr ret;
-  
+
   if(el.flags & MemoryAccess::None)
     ret += "None" ", ";
   if(el.flags & MemoryAccess::Volatile)
@@ -2725,7 +2725,7 @@ template<>
 rdcstr ParamToStr(const std::function<rdcstr(rdcspv::Id)> &idName, const rdcspv::TensorAddressingOperandsAndParamDatas &el)
 {
   rdcstr ret;
-  
+
   if(el.flags & TensorAddressingOperands::None)
     ret += "None" ", ";
   if(el.flags & TensorAddressingOperands::TensorView)
@@ -2744,7 +2744,7 @@ template<>
 rdcstr ParamToStr(const std::function<rdcstr(rdcspv::Id)> &idName, const rdcspv::TensorOperandsAndParamDatas &el)
 {
   rdcstr ret;
-  
+
   if(el.flags & TensorOperands::NoneARM)
     ret += "NoneARM" ", ";
   if(el.flags & TensorOperands::NontemporalARM)
@@ -14554,7 +14554,7 @@ rdcstr OpDecoder::Disassemble(const ConstIter &it, const std::function<rdcstr(Id
   }
   return ret;
 }
-  
+
 OpDecoder::OpDecoder(const ConstIter &it)
 {
   op = it.opcode();

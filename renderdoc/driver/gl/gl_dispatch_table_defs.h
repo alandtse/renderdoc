@@ -6378,7 +6378,7 @@
   UnsupportedWrapper6(void, glWriteMaskEXT, GLuint, res, GLuint, in, GLenum, outX, GLenum, outY, GLenum, outZ, GLenum, outW); \
 
 
-        
+
 // the _renderdoc_hooked variants are to make sure we always have a function symbol exported that we
 // can return from GetProcAddress. On posix systems if another library (or the application itself)
 // creates a symbol called 'glEnable' we'll return the address of that, and break badly. Instead we
@@ -7177,4 +7177,3 @@
     return CONCAT(function, _renderdoc_hooked)(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16, p17); \
   } \
   HOOK_EXPORT ret HOOK_CC function(t1 p1, t2 p2, t3 p3, t4 p4, t5 p5, t6 p6, t7 p7, t8 p8, t9 p9, t10 p10, t11 p11, t12 p12, t13 p13, t14 p14, t15 p15, t16 p16, t17 p17);
-

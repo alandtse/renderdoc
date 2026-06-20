@@ -378,17 +378,17 @@ struct Feedback
 )");
   ResourceId feedbackResourceId;
   DOCUMENT(R"(The buffer bindings.
-  
+
 :type: Tuple[ResourceId,ResourceId,ResourceId,ResourceId]
 )");
   rdcfixedarray<ResourceId, 4> bufferResourceId;
   DOCUMENT(R"(The buffer byte offsets.
-  
+
 :type: Tuple[int,int,int,int]
 )");
   rdcfixedarray<uint64_t, 4> byteOffset = {0, 0, 0, 0};
   DOCUMENT(R"(The buffer byte sizes.
-  
+
 :type: Tuple[int,int,int,int]
 )");
   rdcfixedarray<uint64_t, 4> byteSize = {0, 0, 0, 0};
@@ -681,7 +681,7 @@ struct BlendState
   rdcarray<ColorBlend> blends;
 
   DOCUMENT(R"(The constant blend factor to use in blend equations.
-  
+
 :type: Tuple[float,float,float,float]
 )");
   rdcfixedarray<float, 4> blendFactor = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -796,17 +796,17 @@ struct State
 )");
   Shader tessEvalShader;
   DOCUMENT(R"(The geometry shader stage.
-   
+
 :type: GLShader
 )");
   Shader geometryShader;
   DOCUMENT(R"(The fragment shader stage.
-   
+
 :type: GLShader
 )");
   Shader fragmentShader;
   DOCUMENT(R"(The compute shader stage.
-   
+
 :type: GLShader
 )");
   Shader computeShader;

@@ -255,7 +255,7 @@ cbuffer consts : register(b7)
                                           //         <434, 438>
                                           //         <435, 439>
                                           // }
-                                          
+
   nested_with_padding ak[2];              // 440 - 467, 468 - 495
 
   float4 dummy13;                         // forces no trailing overlap with ak

@@ -184,7 +184,7 @@ float4 main(float4 pos : SV_Position) : SV_Target0
   ret.xyzw += texcubearray.Sample(s1, pos.xyzw);
   ret.xyzw += tex2dms.Load(indices.xy, 0);
   ret.xyzw += tex2dmsarray.Load(indices.xyz, 0);
-		
+
 	ret.x += tex2d_f1.Load(indices.xyz);
 	ret.xy += tex2d_f2.Load(indices.xyz);
 	ret.xyz += tex2d_f3.Load(indices.xyz);
@@ -192,24 +192,24 @@ float4 main(float4 pos : SV_Position) : SV_Target0
 	ret.xyz += (float3)tex2d_u3.Load(indices.xyz);
 	ret.xy += (float2)tex2d_i2.Load(indices.xyz);
 	ret.xyz += (float3)tex2d_i3.Load(indices.xyz);
-	
+
   ret.xy += msaa_flt2_4x.Load(indices.xy, 0);
   ret.xyz += msaa_flt3_2x.Load(indices.xy, 0);
   ret.xyzw += msaa_flt4_8x.Load(indices.xy, 0);
-	
+
   ret.x += buf_f1[indices.x];
   ret.xy += buf_f2[indices.x];
   ret.xyz += buf_f3[indices.x];
   ret.xyzw += buf_f4[indices.x];
   ret.xy += (float2)buf_u2[indices.x];
   ret.xyz += (float3)buf_i3[indices.x];
-  
+
   ret.xyzw += asfloat(bytebuf.Load4(indices.y));
-  
+
   ret.x += strbuf[indices.y].a;
   ret.xy += mul(strbuf[indices.z].c.x, ret.xyz);
   ret.xy += strbuf_f2[indices.y];
-  
+
   ret += tex2dArray[NonUniformResourceIndex(indices.x)].Load(indices.xyzw);
 
   rwtex1d[indices.x] = ret.xyzw;
@@ -217,7 +217,7 @@ float4 main(float4 pos : SV_Position) : SV_Target0
   rwtex3d[indices.xyz] = ret.xyzw;
   rwtex1darray[indices.xy] = ret.xyzw;
   rwtex2darray[indices.xyz] = ret.xyzw;
-  
+
   rwtex2d_f1[indices.xy] = ret.x;
   rwtex2d_f2[indices.xy] = ret.xy;
   rwtex2d_f3[indices.xy] = ret.xyz;
@@ -232,7 +232,7 @@ float4 main(float4 pos : SV_Position) : SV_Target0
 	rwbuf_f4[indices.x] = ret.xyzw;
 	rwbuf_u2[indices.x] = (uint2)ret.xy;
 	rwbuf_i3[indices.x] = (int3)ret.xyz;
-	
+
 #if ROV
   rov[pos.xy] = sqrt(rov[pos.xy]) + ret;
 #endif
@@ -241,7 +241,7 @@ float4 main(float4 pos : SV_Position) : SV_Target0
   sm67_struct dummy67 = (sm67_struct)0;
   rwstrbuf67[indices.x] = dummy67;
 #endif
-	
+
   rwbytebuf.Store4(indices.y, asuint(ret));
 
   buf_struct dummy = rwconsume.Consume();

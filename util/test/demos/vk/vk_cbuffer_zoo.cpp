@@ -512,9 +512,9 @@ layout(set = 0, binding = 0) cbuffer consts
                                           //         <434, 438>
                                           //         <435, 439>
                                           // }
-                                          
+
   nested_with_padding ak[2];              // 440 - 467, 468 - 494
-  
+
   float4 dummy14;                         // forces no trailing overlap with ak
 
   float al;                               // {500}, <501, 502, 503>
@@ -524,7 +524,7 @@ layout(set = 0, binding = 0) cbuffer consts
 
   // struct doesn't allow trailing things into padding
   float an;                               // {508}
-  
+
   float4 dummy15[2];                      // empty structs on D3D
 
   misaligned_struct ao[2];                // [0] = {

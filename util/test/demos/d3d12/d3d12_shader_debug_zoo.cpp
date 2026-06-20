@@ -94,15 +94,15 @@ float4 main(float4 pos : SV_Position) : SV_Target0
 #define INT32 int32_t
 #define UINT32 uint32_t
 
-#if HAS_16BIT_SHADER_OPS 
+#if HAS_16BIT_SHADER_OPS
 #define INT16 int16_t
 #define UINT16 uint16_t
 #define HALF half
-#else // #if HAS_16BIT_SHADER_OPS 
+#else // #if HAS_16BIT_SHADER_OPS
 #define INT16 int
 #define UINT16 uint
 #define HALF float
-#endif // #if HAS_16BIT_SHADER_OPS 
+#endif // #if HAS_16BIT_SHADER_OPS
 
 #if HAS_DOUBLE_SHADER_OPS
 #define INT64 int64_t
@@ -251,7 +251,7 @@ StructuredBuffer<MyStruct> rootsrv : register(t20);
 ByteAddressBuffer rootbytesrv : register(t21);
 StructuredBuffer<MyStruct> appendsrv : register(t40);
 Texture2D<float> dimtex_edge : register(t41);
-#if (SM_6_2 || SM_6_6) && HAS_16BIT_SHADER_OPS 
+#if (SM_6_2 || SM_6_6) && HAS_16BIT_SHADER_OPS
 StructuredBuffer<int16_t> int16srv : register(t42);
 #else
 Buffer<int> int16srv : register(t43);
@@ -1129,14 +1129,14 @@ float4 main(v2f IN) : SV_Target0
 #endif // #if (SM_6_0 || SM_6_2 || SM_6_6)
   if(IN.tri == 111)
   {
-    // first == false 
+    // first == false
     bool first = (intval == (int)IN.tri);
     // second == true
     bool second = (intval > (int)IN.tri);
     bool result = true;
-    if (!(first)) 
+    if (!(first))
       result = !(second);
-    else 
+    else
       result = true;
 
     // result should be false
@@ -1213,7 +1213,7 @@ float4 main(v2f IN) : SV_Target0
     float floatA = zero + 1.5f;
     float floatB = zero + 1.75f;
     float floatC = zero + 2.5f;
-    DOUBLE doubleA = (DOUBLE)floatA; 
+    DOUBLE doubleA = (DOUBLE)floatA;
     DOUBLE doubleB = (DOUBLE)floatB;
     DOUBLE doubleC = (DOUBLE)floatC;
     HALF halfA = (HALF)floatA;
@@ -1233,7 +1233,7 @@ float4 main(v2f IN) : SV_Target0
     float4 Color = float4(0,0,0,0);
     float floatA = IN.tri/100.0 + 1.5f;
     float floatB = IN.tri/100.0 + 1.7f;
-    DOUBLE doubleA = (DOUBLE)floatA; 
+    DOUBLE doubleA = (DOUBLE)floatA;
     DOUBLE doubleB = (DOUBLE)floatB;
     HALF halfA = (HALF)floatA;
     HALF halfB = (HALF)floatB;
@@ -1251,7 +1251,7 @@ float4 main(v2f IN) : SV_Target0
     float4 Color = float4(0,0,0,0);
     float floatA = IN.tri/100.0 + 1.5f;
     float floatB = IN.tri/100.0 + 1.7f;
-    DOUBLE doubleA = (DOUBLE)floatA; 
+    DOUBLE doubleA = (DOUBLE)floatA;
     DOUBLE doubleB = (DOUBLE)floatB;
     HALF halfA = (HALF)floatA;
     HALF halfB = (HALF)floatB;
@@ -1268,7 +1268,7 @@ float4 main(v2f IN) : SV_Target0
   {
     float4 Color = float4(0,0,0,0);
     float floatA = IN.tri/100.0 + 1.5f;
-    DOUBLE doubleA = (DOUBLE)floatA; 
+    DOUBLE doubleA = (DOUBLE)floatA;
     HALF halfA = (HALF)floatA;
 
     HALF half_val = abs(halfA);
@@ -1295,7 +1295,7 @@ float4 main(v2f IN) : SV_Target0
   {
     float4 Color = float4(0,0,0,0);
     float floatA = IN.tri/100.0 + 1.5f;
-    DOUBLE doubleA = (DOUBLE)floatA; 
+    DOUBLE doubleA = (DOUBLE)floatA;
     HALF halfA = (HALF)floatA;
 
     HALF half_val = saturate(halfA);
@@ -1353,7 +1353,7 @@ float4 main(v2f IN) : SV_Target0
     float4 Color = float4(0,0,0,0);
     INT32 int_A = IN.tri/100.0 + 1.5f;
     INT32 int_B = IN.tri/100.0 + 1.7f;
-    INT64 slong_A = (INT64)int_A; 
+    INT64 slong_A = (INT64)int_A;
     INT64 slong_B = (INT64)int_B;
     INT16 short_A = (INT16)int_A;
     INT16 short_B = (INT16)int_B;
@@ -1371,7 +1371,7 @@ float4 main(v2f IN) : SV_Target0
     float4 Color = float4(0,0,0,0);
     INT32 int_A = IN.tri/100.0 + 1.5f;
     INT32 int_B = IN.tri/100.0 + 1.7f;
-    INT64 slong_A = (INT64)int_A; 
+    INT64 slong_A = (INT64)int_A;
     INT64 slong_B = (INT64)int_B;
     INT16 short_A = (INT16)int_A;
     INT16 short_B = (INT16)int_B;
@@ -1389,7 +1389,7 @@ float4 main(v2f IN) : SV_Target0
     float4 Color = float4(0,0,0,0);
     INT32 int_A = IN.tri/100.0 + 1.5f;
     INT32 int_B = IN.tri/100.0 + 1.7f;
-    INT64 slong_A = (INT64)int_A; 
+    INT64 slong_A = (INT64)int_A;
     INT64 slong_B = (INT64)int_B;
     INT16 short_A = (INT16)int_A;
     INT16 short_B = (INT16)int_B;
@@ -1407,7 +1407,7 @@ float4 main(v2f IN) : SV_Target0
     float4 Color = float4(0,0,0,0);
     INT32 int_A = IN.tri/100.0 + 1.5f;
     INT32 int_B = IN.tri/100.0 + 1.7f;
-    INT64 slong_A = (INT64)int_A; 
+    INT64 slong_A = (INT64)int_A;
     INT64 slong_B = (INT64)int_B;
     INT16 short_A = (INT16)int_A;
     INT16 short_B = (INT16)int_B;
@@ -1426,7 +1426,7 @@ float4 main(v2f IN) : SV_Target0
     INT32 int_A = IN.tri/100.0 + 1.5f;
     INT32 int_B = IN.tri/100.0 + 1.7f;
     INT32 int_C = IN.tri/100.0 + 2.7f;
-    INT64 slong_A = (INT64)int_A; 
+    INT64 slong_A = (INT64)int_A;
     INT64 slong_B = (INT64)int_B;
     INT64 slong_C = (INT64)int_C;
     INT16 short_A = (INT16)int_A;
@@ -1446,7 +1446,7 @@ float4 main(v2f IN) : SV_Target0
     float4 Color = float4(0,0,0,0);
     vector<INT32,2> int_A = {IN.tri/100.0 + 1.5f, IN.tri - 1.5f};
     vector<INT32,2> int_B = {IN.tri/100.0 + 1.7f, IN.tri - 1.7f};
-    vector<INT64,2> slong_A = {(INT64)int_A.x, (INT64)int_A.y}; 
+    vector<INT64,2> slong_A = {(INT64)int_A.x, (INT64)int_A.y};
     vector<INT64,2> slong_B = {(INT64)int_B.x, (INT64)int_B.y};
     vector<INT16,2> short_A = {(INT16)int_A.x, (INT16)int_A.y};
     vector<INT16,2> short_B = {(INT16)int_B.x, (INT16)int_B.y};
@@ -1500,7 +1500,7 @@ float4 main(v2f IN) : SV_Target0
     float4 Color = float4(0,0,0,0);
     UINT32 int_A = IN.tri/100.0 + 1.5f;
     UINT32 int_B = IN.tri/100.0 + 1.7f;
-    UINT64 slong_A = (UINT64)int_A; 
+    UINT64 slong_A = (UINT64)int_A;
     UINT64 slong_B = (UINT64)int_B;
     UINT16 short_A = (UINT16)int_A;
     UINT16 short_B = (UINT16)int_B;
@@ -1518,7 +1518,7 @@ float4 main(v2f IN) : SV_Target0
     float4 Color = float4(0,0,0,0);
     UINT32 int_A = IN.tri/100.0 + 1.5f;
     UINT32 int_B = IN.tri/100.0 + 1.7f;
-    UINT64 slong_A = (UINT64)int_A; 
+    UINT64 slong_A = (UINT64)int_A;
     UINT64 slong_B = (UINT64)int_B;
     UINT16 short_A = (UINT16)int_A;
     UINT16 short_B = (UINT16)int_B;
@@ -1536,7 +1536,7 @@ float4 main(v2f IN) : SV_Target0
     float4 Color = float4(0,0,0,0);
     UINT32 int_A = IN.tri/100.0 + 1.5f;
     UINT32 int_B = IN.tri/100.0 + 1.7f;
-    UINT64 slong_A = (UINT64)int_A; 
+    UINT64 slong_A = (UINT64)int_A;
     UINT64 slong_B = (UINT64)int_B;
     UINT16 short_A = (UINT16)int_A;
     UINT16 short_B = (UINT16)int_B;
@@ -1554,7 +1554,7 @@ float4 main(v2f IN) : SV_Target0
     float4 Color = float4(0,0,0,0);
     UINT32 int_A = IN.tri/100.0 + 1.5f;
     UINT32 int_B = IN.tri/100.0 + 1.7f;
-    UINT64 slong_A = (UINT64)int_A; 
+    UINT64 slong_A = (UINT64)int_A;
     UINT64 slong_B = (UINT64)int_B;
     UINT16 short_A = (UINT16)int_A;
     UINT16 short_B = (UINT16)int_B;
@@ -1573,7 +1573,7 @@ float4 main(v2f IN) : SV_Target0
     UINT32 int_A = IN.tri/100.0 + 1.5f;
     UINT32 int_B = IN.tri/100.0 + 1.7f;
     UINT32 int_C = IN.tri/100.0 + 2.7f;
-    UINT64 slong_A = (UINT64)int_A; 
+    UINT64 slong_A = (UINT64)int_A;
     UINT64 slong_B = (UINT64)int_B;
     UINT64 slong_C = (UINT64)int_C;
     UINT16 short_A = (UINT16)int_A;
@@ -1593,7 +1593,7 @@ float4 main(v2f IN) : SV_Target0
     float4 Color = float4(0,0,0,0);
     vector<UINT32,2> int_A = {IN.tri/100.0 + 1.5f, IN.tri - 1.5f};
     vector<UINT32,2> int_B = {IN.tri/100.0 + 1.7f, IN.tri - 1.7f};
-    vector<UINT64,2> slong_A = {(UINT64)int_A.x, (UINT64)int_A.y}; 
+    vector<UINT64,2> slong_A = {(UINT64)int_A.x, (UINT64)int_A.y};
     vector<UINT64,2> slong_B = {(UINT64)int_B.x, (UINT64)int_B.y};
     vector<UINT16,2> short_A = {(UINT16)int_A.x, (UINT16)int_A.y};
     vector<UINT16,2> short_B = {(UINT16)int_B.x, (UINT16)int_B.y};
@@ -1656,7 +1656,7 @@ struct v2f
   float2 uv : TEXCOORD0;
 };
 
-float4 main(v2f IN, uint samp : SV_SampleIndex) : SV_Target0 
+float4 main(v2f IN, uint samp : SV_SampleIndex) : SV_Target0
 {
   float2 uvCentroid = EvaluateAttributeCentroid(IN.uv);
   float2 uvSamp0 = EvaluateAttributeAtSample(IN.uv, 0) - IN.uv;
@@ -1690,7 +1690,7 @@ float4 main(v2f IN, uint samp : SV_SampleIndex
 #if SUPPORTS_BARY
             , float3 bary : SV_Barycentrics
 #endif
-) : SV_Target0 
+) : SV_Target0
 {
   float2 uvCentroid = EvaluateAttributeCentroid(IN.uv);
   float2 uvSamp0 = EvaluateAttributeAtSample(IN.uv, 0) - IN.uv;
