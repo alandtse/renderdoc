@@ -47,7 +47,7 @@ layout(location = 0, index = 0) out vec4 Color;
 void main()
 {
 	Color = vertIn.col;
-  Color.b = 
+  Color.b =
 
 )EOSHADER";
 

@@ -234,7 +234,7 @@ uvec4 ProcessColor(vec4 col)
 
 #define COL_TYPE vec4
 #define ALPHA_ADD 1.75
-#define INTERP 
+#define INTERP
 
 vec4 ProcessColor(vec4 col)
 {

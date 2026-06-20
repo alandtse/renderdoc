@@ -902,13 +902,13 @@ struct RootSignature
   ResourceId resourceId;
 
   DOCUMENT(R"(The parameters in this root signature.
-    
+
 :type: List[D3D12RootParam]
 )");
   rdcarray<RootParam> parameters;
 
   DOCUMENT(R"(The static samplers defined in this root signature.
-    
+
 :type: List[D3D12StaticSampler]
 )");
   rdcarray<StaticSampler> staticSamplers;
@@ -962,13 +962,13 @@ struct State
   ResourceId pipelineResourceId;
 
   DOCUMENT(R"(The descriptor heaps currently bound.
-    
+
 :type: List[ResourceId]
 )");
   rdcarray<ResourceId> descriptorHeaps;
 
   DOCUMENT(R"(Details of the root signature structure and root parameters.
-    
+
 :type: D3D12RootSignature
 )");
   RootSignature rootSignature;

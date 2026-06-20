@@ -104,7 +104,7 @@ TEST_DEBUG_TYPE(TYPE) \
 TEST_DEBUG_TYPE(TYPE ## 1) \
 TEST_DEBUG_TYPE(TYPE ## 2) \
 TEST_DEBUG_TYPE(TYPE ## 3) \
-TEST_DEBUG_TYPE(TYPE ## 4) 
+TEST_DEBUG_TYPE(TYPE ## 4)
 #define TEST_DEBUG_MATRIX23_TYPE(TYPE) \
 row_major TYPE ## 2x3 __test_ ## TYPE ## 23  = 0;
 
@@ -113,7 +113,7 @@ row_major TYPE ## 2x3 __test_ ## TYPE ## 23  = 0;
   testResult.x += __test_ ## TYPE ## 1 .x; \
   testResult.xy += __test_ ## TYPE ## 2 .xy; \
   testResult.xyz += __test_ ## TYPE ## 3 .xyz; \
-  testResult.xyzw += __test_ ## TYPE ## 4 .xyzw; 
+  testResult.xyzw += __test_ ## TYPE ## 4 .xyzw;
 
 #define USE_DEBUG_MATRIX23_TYPE(TYPE) \
   testResult.xyz += __test_ ## TYPE ## 23[0] .xyz; \

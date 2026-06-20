@@ -114,13 +114,13 @@ void main(uint3 inGTid : SV_GroupThreadID)
   {
     uint temp = GetTest() >> 1;
     if(temp == 0)
-      count = 100U; 
+      count = 100U;
     if(temp == 1)
-      count = 200U; 
+      count = 200U;
     if(temp == 2)
-      count = 400U; 
+      count = 400U;
     if(temp == 3)
-      count = 5000U; 
+      count = 5000U;
   }
 
   if(useCpu)

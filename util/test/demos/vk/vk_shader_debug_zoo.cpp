@@ -92,7 +92,7 @@ layout(location = 3) in float negone;
 void main()
 {
   int test = gl_InstanceIndex;
- 
+
   gl_Position = vec4(pos.x + pos.z * float(test % 256), pos.y + pos.w * float(test / 256), 0.0, 1.0);
 
   const vec4 verts[4] = vec4[4](vec4(-1.0, -1.0, 0.5, 1.0), vec4(1.0, -1.0, 0.5, 1.0),
@@ -118,7 +118,7 @@ void main()
 #extension GL_EXT_samplerless_texture_functions : require
 #extension GL_EXT_nonuniform_qualifier : require
 
-#define TEST_DESC_INDEXING  
+#define TEST_DESC_INDEXING
 
 layout(set = 0, binding = 10, std140) uniform constsbuf
 {
@@ -1727,7 +1727,7 @@ layout(location = 9) out vec3 arr[3];
 void main()
 {
   test = gl_InstanceIndex;
- 
+
   gl_Position = vec4(pos.x + pos.z * float(test % 256), pos.y + pos.w * float(test / 256), 0.0, 1.0);
 
   zeroi = 0;
@@ -1743,7 +1743,7 @@ void main()
   str.n.d = vec2(test.w, 3.141592f);
 
   test *= 1.5f;
-  
+
   matrix = mat3((test * 2.0f).xyz, (test * 3.0f).xyz, (test * 4.0f).xyz);
 
   arr[0] = (test * 5.0f).yzw;
@@ -2541,7 +2541,7 @@ void main()
        %_colb = OpCompositeConstruct %float2 %randf_2 %randf_3
         %_mat = OpCompositeConstruct %float2x2 %_cola %_colb
 
-        %_vec = OpCompositeConstruct %float2 %randf_4 %randf_5   
+        %_vec = OpCompositeConstruct %float2 %randf_4 %randf_5
 
  %_out_float2 = OpMatrixTimesVector %float2 %_mat %_vec
 )EOTEST",
@@ -2550,7 +2550,7 @@ void main()
        %_colb = OpCompositeConstruct %float2 %randf_2 %randf_3
         %_mat = OpCompositeConstruct %float2x2 %_cola %_colb
 
-        %_vec = OpCompositeConstruct %float2 %randf_4 %randf_5   
+        %_vec = OpCompositeConstruct %float2 %randf_4 %randf_5
 
  %_out_float2 = OpVectorTimesMatrix %float2 %_vec %_mat
 )EOTEST",
@@ -2559,7 +2559,7 @@ void main()
        %_colb = OpCompositeConstruct %float2 %randf_2 %randf_3
        %_mat1 = OpCompositeConstruct %float2x2 %_cola %_colb
 
-        %_vec = OpCompositeConstruct %float2 %randf_4 %randf_5   
+        %_vec = OpCompositeConstruct %float2 %randf_4 %randf_5
 
        %_mat2 = OpMatrixTimesScalar %float2x2 %_mat1 %randf_6
 
@@ -2570,7 +2570,7 @@ void main()
        %_colb = OpCompositeConstruct %float2 %randf_2 %randf_3
        %_mat1 = OpCompositeConstruct %float2x2 %_cola %_colb
 
-        %_vec = OpCompositeConstruct %float2 %randf_4 %randf_5   
+        %_vec = OpCompositeConstruct %float2 %randf_4 %randf_5
 
        %_colc = OpCompositeConstruct %float2 %randf_6 %randf_7
        %_cold = OpCompositeConstruct %float2 %randf_8 %randf_9
@@ -2585,7 +2585,7 @@ void main()
        %_colb = OpCompositeConstruct %float2 %randf_2 %randf_3
        %_mat1 = OpCompositeConstruct %float2x2 %_cola %_colb
 
-        %_vec = OpCompositeConstruct %float2 %randf_4 %randf_5   
+        %_vec = OpCompositeConstruct %float2 %randf_4 %randf_5
 
        %_colc = OpCompositeConstruct %float2 %randf_6 %randf_7
        %_cold = OpCompositeConstruct %float2 %randf_8 %randf_9
@@ -3292,7 +3292,7 @@ OpBranch %_bottomlabel
 %_ptr_addr_bda_data_struct = OpAccessChain %ptr_PushConstant_u64 %push_data %int_4
 %_addr = OpLoad %u64 %_ptr_addr_bda_data_struct
 %_addr_bda_data_struct = OpIAdd %u64 %_addr %u64_dyn_8
-%_ptr_bda_data_struct = OpConvertUToPtr %ptr_PhysicalStorageBuffer_bda_data_struct %_addr_bda_data_struct 
+%_ptr_bda_data_struct = OpConvertUToPtr %ptr_PhysicalStorageBuffer_bda_data_struct %_addr_bda_data_struct
 %_out_u64 = OpConvertPtrToU %u64 %_ptr_bda_data_struct
 )EOTEST",
             // arithmetic on u64 address then convert u64 address to pointer
@@ -3312,8 +3312,8 @@ OpBranch %_bottomlabel
 %_addr_bda_data_struct_hi = OpLoad %uint %_ptr_addr_bda_data_struct_hi
 %_ptr_addr_bda_data_struct_lo = OpAccessChain %ptr_PushConstant_uint %push_data %int_3
 %_addr_bda_data_struct_lo = OpLoad %uint %_ptr_addr_bda_data_struct_lo
-%_addr_u64_hi = OpUConvert %u64 %_addr_bda_data_struct_hi 
-%_addr_u64_lo = OpUConvert %u64 %_addr_bda_data_struct_lo 
+%_addr_u64_hi = OpUConvert %u64 %_addr_bda_data_struct_hi
+%_addr_u64_lo = OpUConvert %u64 %_addr_bda_data_struct_lo
 %_addr_u64 = OpShiftLeftLogical %u64 %_addr_u64_hi %uint_32
 %_addr_bda_data_struct = OpIAdd %u64 %_addr_u64 %_addr_u64_lo
 %_ptr_bda_data_struct = OpConvertUToPtr %ptr_PhysicalStorageBuffer_bda_data_struct %_addr_bda_data_struct
@@ -4052,7 +4052,7 @@ OpDecorate %ptr_PhysicalStorageBuffer_bda_data_struct_f32_8 ArrayStride 8
 OpDecorate %ptr_PhysicalStorageBuffer_bda_data_struct_f32_12 ArrayStride 12
 OpDecorate %pushdata_struct Block
 OpMemberDecorate %pushdata_struct 0 Offset 16       ; int4 data
-OpMemberDecorate %pushdata_struct 1 Offset 32       ; uint2 bda_uvec2 
+OpMemberDecorate %pushdata_struct 1 Offset 32       ; uint2 bda_uvec2
 OpMemberDecorate %pushdata_struct 2 Offset 40       ; uint bda_hi
 OpMemberDecorate %pushdata_struct 3 Offset 44       ; uint bda_lo
 OpMemberDecorate %pushdata_struct 4 Offset 48       ; uint64_t bda_u64

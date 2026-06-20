@@ -907,8 +907,8 @@ void ExtractInputs(Inputs IN
 
 #elif STAGE == STAGE_CS
 
-                     , uint3 threadid : SV_GroupThreadID 
-                     , uint3 dtid : SV_DispatchThreadID 
+                     , uint3 threadid : SV_GroupThreadID
+                     , uint3 dtid : SV_DispatchThreadID
                      , uint3 groupid : SV_GroupID
                      , uint groupindex : SV_GroupIndex
 

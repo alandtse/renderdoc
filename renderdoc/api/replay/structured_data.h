@@ -179,7 +179,7 @@ DOCUMENT(R"(Bitfield flags that could be applied to a type.
 
 .. data:: OffsetOrSize
 
-  Special flag to indicate that this type will be used as a byte offset or byte size, which is used to 
+  Special flag to indicate that this type will be used as a byte offset or byte size, which is used to
   control the formatting mode when the value is displayed in the UI.
 )");
 enum class SDTypeFlags : uint32_t

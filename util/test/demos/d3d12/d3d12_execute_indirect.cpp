@@ -226,7 +226,7 @@ void main(uint3 gid : SV_GroupID)
 
   // skip the 'middle' in the 9 space
   if(tid >= 4) tid++;
-  
+
   float2 origin = float2(float(tid%3)/2.0f, 1.0f - float(tid/3)/2.0f);
 
   // squeeze in a bit towards the centre

@@ -70,7 +70,7 @@ void main(uint3 threadID : SV_DispatchThreadID)
     uint2 input;
     input.x = inUAV.Load(threadID.x * 8);
     input.y = inUAV.Load(threadID.x * 8 + 4);
-    
+
     AmdExtD3DShaderIntrinsics_AtomicMaxU64(outUAV, 0, input);
 }
 
@@ -97,7 +97,7 @@ void main(uint3 threadID : SV_DispatchThreadID)
     uint2 input;
     input.x = inUAV.Load(threadID.x * 8);
     input.y = inUAV.Load(threadID.x * 8 + 4);
-    
+
     outUAV.Store(0, input);
 }
 

@@ -99,7 +99,7 @@ struct m2f
 
 [outputtopology("triangle")]
 [numthreads(1, 1, 1)]
-void ms_amplify(uint gtid : SV_GroupThreadID, uint dtid : SV_DispatchThreadID, in payload Payload payload, out indices uint3 triangles[128], out vertices m2f vertices[64]) 
+void ms_amplify(uint gtid : SV_GroupThreadID, uint dtid : SV_DispatchThreadID, in payload Payload payload, out indices uint3 triangles[128], out vertices m2f vertices[64])
 {
   SetMeshOutputCounts(3, 1);
 
@@ -150,7 +150,7 @@ struct m2f
 
 [outputtopology("triangle")]
 [numthreads(1, 1, 1)]
-void ms_amplify(uint gtid : SV_GroupThreadID, uint dtid : SV_DispatchThreadID, in payload Payload payload, out indices uint3 triangles[128], out vertices m2f vertices[64]) 
+void ms_amplify(uint gtid : SV_GroupThreadID, uint dtid : SV_DispatchThreadID, in payload Payload payload, out indices uint3 triangles[128], out vertices m2f vertices[64])
 {
   SetMeshOutputCounts(3, 1);
 
@@ -185,7 +185,7 @@ struct m2f
 
 [outputtopology("triangle")]
 [numthreads(1, 1, 1)]
-void ms_simple(in uint gid : SV_GroupID, out indices uint3 triangles[2], out vertices m2f vertices[6]) 
+void ms_simple(in uint gid : SV_GroupID, out indices uint3 triangles[2], out vertices m2f vertices[6])
 {
   SetMeshOutputCounts(6, 2);
 

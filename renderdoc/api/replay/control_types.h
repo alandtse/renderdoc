@@ -978,7 +978,7 @@ struct APIUseData
   rdcstr name;
 
   DOCUMENT(R"(``True`` if the API is presenting to a swapchain
-  
+
 :type: bool
 )");
   bool presenting = false;

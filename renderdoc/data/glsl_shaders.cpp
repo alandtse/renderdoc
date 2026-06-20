@@ -1035,7 +1035,7 @@ layout(binding = 7) uniform samplerBuffer texBuf;
 
 void main() {
   gl_FragDepth = textureLod(tex2D, gl_FragCoord.xy, gl_FragCoord.z).z +
-                 float(texelFetch(tex3D, ivec3(gl_FragCoord.xyz), 0).y) + 
+                 float(texelFetch(tex3D, ivec3(gl_FragCoord.xyz), 0).y) +
                  texelFetch(texBuf, int(gl_FragCoord.x)).x;
 }
 

@@ -2464,7 +2464,7 @@ layout(std140) buffer Output
   uint hit_count;
   uint total_count;
   uvec2 pad;
-  
+
   ResultData hits[];
 } outbuffer;
 
@@ -2514,7 +2514,7 @@ void main()
 #elif STAGE == STAGE_PS
   debug_pixelPos = gl_FragCoord;
 
-#if USEPRIM 
+#if USEPRIM
   primitive = gl_PrimitiveID;
 #endif
 
