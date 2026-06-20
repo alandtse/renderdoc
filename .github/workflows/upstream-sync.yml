@@ -17,7 +17,10 @@ jobs:
         with:
           ref: dev
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # Prefer a PAT/fine-grained token (contents:write + workflows:write) if
+          # provided: the default GITHUB_TOKEN cannot push changes under
+          # .github/workflows/, so upstream CI changes would otherwise be unpushable.
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Configure git
         run: |
@@ -44,22 +47,45 @@ jobs:
         run: |
           DATE=$(date -u +%Y-%m-%d)
           UPSTREAM_SHORT=$(git rev-parse --short upstream/v1.x)
-          if git merge --no-ff -m "chore(upstream-sync): merge upstream v1.x ${DATE} (${UPSTREAM_SHORT})" upstream/v1.x; then
-            git push origin dev
-            echo "status=ok" >> $GITHUB_OUTPUT
-          else
+          if ! git merge --no-ff -m "chore(upstream-sync): merge upstream v1.x ${DATE} (${UPSTREAM_SHORT})" upstream/v1.x; then
             git merge --abort
             echo "status=conflict" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          # Push separately: a clean merge can still be rejected when it touches
+          # .github/workflows/** and the token lacks the workflow scope. Capture
+          # that instead of letting the step die silently without opening an issue.
+          if git push origin dev; then
+            echo "status=ok" >> $GITHUB_OUTPUT
+          else
+            echo "status=push_failed" >> $GITHUB_OUTPUT
           fi
 
-      - name: Open issue on conflict
-        if: steps.merge.outputs.status == 'conflict'
+      - name: Open issue on sync failure
+        if: steps.merge.outputs.status == 'conflict' || steps.merge.outputs.status == 'push_failed'
         run: |
           UPSTREAM_SHA="${{ steps.check.outputs.upstream_sha }}"
+
+          # Don't pile up a new issue every day while the same failure persists.
+          OPEN=$(gh issue list --label upstream-sync --state open --json number --jq 'length')
+          if [ "${OPEN:-0}" -gt 0 ]; then
+            echo "An open upstream-sync issue already exists — not opening another."
+            exit 0
+          fi
+          # The label may not exist yet (first failure); create it idempotently.
+          gh label create upstream-sync --color B60205 \
+            --description "Automated upstream sync needs attention" 2>/dev/null || true
+
+          if [ "${{ steps.merge.outputs.status }}" = "conflict" ]; then
+            REASON="Automated merge of upstream \`v1.x\` into \`dev\` failed due to **conflicts**."
+          else
+            REASON="The merge succeeded but the **push was rejected**: it modifies files under \`.github/workflows/\`, which the default \`GITHUB_TOKEN\` is not allowed to push. To automate this, add an \`UPSTREAM_SYNC_TOKEN\` repository secret (a PAT or fine-grained token with \`contents:write\` + \`workflows:write\`). Until then, sync manually."
+          fi
+
           gh issue create \
-            --title "Upstream sync conflict — manual resolution needed" \
+            --title "Upstream sync failed — manual resolution needed" \
             --label "upstream-sync" \
-            --body "Automated merge of upstream \`v1.x\` into \`dev\` failed due to conflicts.
+            --body "${REASON}
 
           Upstream is at: https://github.com/baldurk/renderdoc/commit/${UPSTREAM_SHA}
 
@@ -68,8 +94,8 @@ jobs:
           git fetch upstream
           git checkout dev
           git merge upstream/v1.x
-          # resolve conflicts, then:
+          # resolve any conflicts, then:
           git push origin dev
           \`\`\`"
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
