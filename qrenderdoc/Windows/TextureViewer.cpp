@@ -4279,6 +4279,11 @@ void TextureViewer::UI_UpdatePickedCrosshair()
   {
     for(int i = 0; i < 4; i++)
       m_PickedCrosshair[i]->hide();
+    if(!m_LastCrosshairRect.isNull())
+    {
+      m_LastCrosshairRect = QRect();
+      ui->render->update();
+    }
     return;
   }
 
@@ -4302,6 +4307,11 @@ void TextureViewer::UI_UpdatePickedCrosshair()
   {
     for(int i = 0; i < 4; i++)
       m_PickedCrosshair[i]->hide();
+    if(!m_LastCrosshairRect.isNull())
+    {
+      m_LastCrosshairRect = QRect();
+      ui->render->update();
+    }
     return;
   }
 
@@ -4337,6 +4347,15 @@ void TextureViewer::UI_UpdatePickedCrosshair()
     }
     m_PickedCrosshair[i]->show();
     m_PickedCrosshair[i]->raise();
+  }
+
+  // Repaint the render surface only when the marker actually moved, so the region the
+  // marker vacated is redrawn (clearing ghost trails) without re-rendering on every hover.
+  QRect crosshairRect(x, y, pixSize, pixSize);
+  if(crosshairRect != m_LastCrosshairRect)
+  {
+    m_LastCrosshairRect = crosshairRect;
+    ui->render->update();
   }
 }
 
