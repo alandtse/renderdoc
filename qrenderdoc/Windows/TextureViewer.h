@@ -420,6 +420,11 @@ private:
   // Tracks whether the crosshair is currently using the dark (contrast) style to avoid
   // redundant setStyleSheet calls.
   bool m_CrosshairDark = false;
+  // Last on-screen rect occupied by the crosshair. The render widget paints on-screen
+  // (WA_PaintOnScreen) with no backing store, so when the marker widgets move the region
+  // they vacate is not repainted and leaves ghost trails. We force a render-surface repaint
+  // whenever this rect changes (move/appear/disappear) so the stale pixels are cleared.
+  QRect m_LastCrosshairRect;
 
   // Pixel value comparison label populated after "Other Eye" jump.
   QLabel *m_SBSEyeCompare = NULL;
