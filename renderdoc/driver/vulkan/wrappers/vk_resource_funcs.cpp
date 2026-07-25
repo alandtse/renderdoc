@@ -964,8 +964,8 @@ void WrappedVulkan::vkFreeMemory(VkDevice device, VkDeviceMemory memory, const V
       SCOPED_READLOCK(m_CapTransitionLock);
       if(IsActiveCapturing(m_State) && wrapped->record->hasBDA)
       {
-        SCOPED_LOCK(m_DeviceAddressResourcesLock);
-        m_DeviceAddressResources.DeadMemories.push_back(memory);
+        SCOPED_LOCK(m_DeferredDestructLock);
+        m_DeferredDestructResources.DeadMemories.push_back(memory);
         return;
       }
     }
@@ -1038,6 +1038,9 @@ void WrappedVulkan::ProcessMap(VkDeviceMemory memory, VkDeviceSize offset, VkDev
     RDCASSERT(memrecord->memMapState);
     MemMapState &state = *memrecord->memMapState;
 
+    // memory that is mapped should be marked as dirty, in case a buffer is bound to it mid-capture
+    GetResourceManager()->MarkDirtyResource(memrecord->GetResourceID());
+
     // ensure size is valid
     RDCASSERT(size == VK_WHOLE_SIZE || (size > 0 && offset + size <= memrecord->Length),
               GetResID(memory), size, memrecord->Length);
@@ -1082,7 +1085,8 @@ bool WrappedVulkan::SerialiseUnmap(SerialiserType &ser, VkDeviceMemory memory, u
     }
 
     if(IsLoading(m_State))
-      m_ResourceUses[GetResID(memory)].push_back(EventUsage(m_RootEventID, ResourceUsage::CPUWrite));
+      m_LoadingEventNode.resourceUsage.push_back(
+          make_rdcpair(GetResID(memory), ResourceUsage::CPUWrite));
 
     const Intervals<VulkanCreationInfo::Memory::MemoryBinding> &bindings =
         m_CreationInfo.m_Memory[GetResID(memory)].bindings;
@@ -1438,8 +1442,8 @@ bool WrappedVulkan::Serialise_vkFlushMappedMemoryRanges(SerialiserType &ser, VkD
   if(IsReplayingAndReading() && MemRange.memory != VK_NULL_HANDLE && MemRange.size > 0)
   {
     if(IsLoading(m_State))
-      m_ResourceUses[GetResID(MemRange.memory)].push_back(
-          EventUsage(m_RootEventID, ResourceUsage::CPUWrite));
+      m_LoadingEventNode.resourceUsage.push_back(
+          make_rdcpair(GetResID(MemRange.memory), ResourceUsage::CPUWrite));
 
     VkResult ret =
         ObjDisp(device)->MapMemory(Unwrap(device), Unwrap(MemRange.memory), MemRange.offset,
@@ -1966,6 +1970,14 @@ VkResult WrappedVulkan::vkBindImageMemory(VkDevice device, VkImage image, VkDevi
       // we're currently capturing, do the same with the memory with the correct semantics.
       GetResourceManager()->MarkMemoryFrameReferenced(
           GetResID(mem), memOffset, record->resInfo->memreqs.size, eFrameRef_Read);
+    }
+
+    // pre-initialised images act like buffers, and dirty & ref the memory they are bound to.
+    if(record->resInfo->imageInfo.initialLayout == VK_IMAGE_LAYOUT_PREINITIALIZED)
+    {
+      GetResourceManager()->MarkDirtyResource(memrecord->GetResourceID());
+      GetResourceManager()->MarkMemoryFrameReferenced(
+          memrecord->GetResourceID(), memOffset, record->resInfo->memreqs.size, eFrameRef_Read);
     }
 
     // images are a base resource but we want to track where their memory comes from.
@@ -3810,6 +3822,15 @@ VkResult WrappedVulkan::vkBindImageMemory2(VkDevice device, uint32_t bindInfoCou
       {
         // AddForcedReference will also call MarkResourceFrameReferenced() on the image in case
         // we're currently capturing, do the same with the memory with the correct semantics.
+        GetResourceManager()->MarkMemoryFrameReferenced(
+            GetResID(pBindInfos[i].memory), pBindInfos[i].memoryOffset,
+            imgrecord->resInfo->memreqs.size, eFrameRef_Read);
+      }
+
+      // pre-initialised images act like buffers, and dirty & ref the memory they are bound to.
+      if(imgrecord->resInfo->imageInfo.initialLayout == VK_IMAGE_LAYOUT_PREINITIALIZED)
+      {
+        GetResourceManager()->MarkDirtyResource(memrecord->GetResourceID());
         GetResourceManager()->MarkMemoryFrameReferenced(
             GetResID(pBindInfos[i].memory), pBindInfos[i].memoryOffset,
             imgrecord->resInfo->memreqs.size, eFrameRef_Read);

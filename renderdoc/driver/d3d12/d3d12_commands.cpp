@@ -753,6 +753,12 @@ bool WrappedID3D12CommandQueue::ProcessChunk(ReadSerialiser &ser, D3D12Chunk chu
     case D3D12Chunk::Device_CreateDepthStencilView:
     case D3D12Chunk::Device_CreateSampler:
     case D3D12Chunk::Device_CreateSampler2:
+    case D3D12Chunk::Device_TryCreateShaderResourceView:
+    case D3D12Chunk::Device_TryCreateUnorderedAccessView:
+    case D3D12Chunk::Device_TryCreateConstantBufferView:
+    case D3D12Chunk::Device_TryCreateSampler2:
+    case D3D12Chunk::Device_TryCreateRenderTargetView:
+    case D3D12Chunk::Device_TryCreateDepthStencilView:
       ret = m_pDevice->Serialise_DynamicDescriptorWrite(ser, NULL);
       break;
     case D3D12Chunk::Device_CopyDescriptors:
@@ -1066,6 +1072,7 @@ bool WrappedID3D12CommandQueue::ProcessChunk(ReadSerialiser &ser, D3D12Chunk chu
     case D3D12Chunk::Device_CreateRootSignatureFromSubobjectInLibrary:
     case D3D12Chunk::List_SetProgram:
     case D3D12Chunk::List_DispatchGraph:
+    case D3D12Chunk::Device_CreateQueryHeap1:
       RDCERR("Unexpected chunk while processing frame: %s", ToStr(chunk).c_str());
       return false;
 
@@ -2433,10 +2440,11 @@ void D3D12CommandData::AddAction(const ActionDescription &a)
   {
     D3D12ActionTreeNode node(action);
 
-    node.resourceUsage.swap(m_BakedCmdListInfo[m_LastCmdListID].resourceUsage);
-
     if(m_LastCmdListID != ResourceId())
+    {
+      node.resourceUsage.swap(m_BakedCmdListInfo[m_LastCmdListID].resourceUsage);
       AddUsage(m_BakedCmdListInfo[m_LastCmdListID].state, node);
+    }
 
     for(const ActionDescription &child : action.children)
       node.children.push_back(D3D12ActionTreeNode(child));
