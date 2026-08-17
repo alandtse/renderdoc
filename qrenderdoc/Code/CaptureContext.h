@@ -65,7 +65,7 @@ class CaptureContext : public ICaptureContext, IExtensionManager
   Q_DECLARE_TR_FUNCTIONS(CaptureContext);
 
 public:
-  CaptureContext(PersistantConfig &cfg);
+  CaptureContext(PersistentConfig &cfg);
   ~CaptureContext();
 
   void Begin(QString paramFilename, QString remoteHost, uint32_t remoteIdent, bool temp,
@@ -78,8 +78,10 @@ public:
   // IExtensionManager
 
   rdcarray<ExtensionMetadata> GetInstalledExtensions() override;
+  rdcarray<rdcstr> GetLoadedExtensions() override;
   bool IsExtensionLoaded(rdcstr name) override;
   rdcstr LoadExtension(rdcstr name) override;
+  bool IsPythonDebuggerConnected() override;
 
   void RegisterWindowMenu(WindowMenu base, const rdcarray<rdcstr> &submenus,
                           ExtensionCallback callback) override;
@@ -95,19 +97,18 @@ public:
 
   IMiniQtHelper &GetMiniQtHelper() override;
 
-  void MessageDialog(const rdcstr &text, const rdcstr &title = "Python Extension Message") override;
-  void ErrorDialog(const rdcstr &text, const rdcstr &title = "Python Extension Error") override;
+  void MessageDialog(const rdcstr &text, const rdcstr &title = "") override;
+  void ErrorDialog(const rdcstr &text, const rdcstr &title = "") override;
   DialogButton QuestionDialog(const rdcstr &text, const rdcarray<DialogButton> &options,
-                              const rdcstr &title = "Python Extension Prompt") override;
+                              const rdcstr &title = "") override;
 
-  rdcstr OpenFileName(const rdcstr &caption = "Open a file", const rdcstr &dir = rdcstr(),
-                      const rdcstr &filter = rdcstr()) override;
+  rdcstr OpenFileName(const rdcstr &caption = "", const rdcstr &dir = "",
+                      const rdcstr &filter = "") override;
 
-  rdcstr OpenDirectoryName(const rdcstr &caption = "Open a directory",
-                           const rdcstr &dir = rdcstr()) override;
+  rdcstr OpenDirectoryName(const rdcstr &caption = "", const rdcstr &dir = "") override;
 
-  rdcstr SaveFileName(const rdcstr &caption = "Save a file", const rdcstr &dir = rdcstr(),
-                      const rdcstr &filter = rdcstr()) override;
+  rdcstr SaveFileName(const rdcstr &caption = "", const rdcstr &dir = "",
+                      const rdcstr &filter = "") override;
 
   //////////////////////////////////////////////////////////////////////////////
   // Control functions
@@ -117,6 +118,7 @@ public:
   bool SaveCaptureTo(const rdcstr &captureFile) override;
   void RecompressCapture() override;
   void CloseCapture() override;
+  IReplayController *GetBlockingController() override { return NULL; }
   bool ImportCapture(const CaptureFileFormat &fmt, const rdcstr &importfile,
                      const rdcstr &rdcfile) override;
   void ExportCapture(const CaptureFileFormat &fmt, const rdcstr &exportfile) override;
@@ -138,6 +140,7 @@ public:
     if(IsCaptureLoaded())
     {
       f->OnCaptureLoaded();
+      f->OnSelectedEventChanged(CurSelectedEvent());
       f->OnEventChanged(CurEvent());
     }
   }
@@ -145,6 +148,8 @@ public:
   void RemoveCaptureViewer(ICaptureViewer *f) override { m_CaptureViewers.removeAll(f); }
   //////////////////////////////////////////////////////////////////////////////
   // Accessors
+
+  void InvokeOntoUIThread(std::function<void()> callback) override;
 
   IReplayManager &Replay() override { return m_Replay; }
   IExtensionManager &Extensions() override { return *this; }
@@ -155,8 +160,8 @@ public:
   ResultDetails GetFatalError() override { return m_Replay.GetFatalError(); }
   rdcstr GetCaptureFilename() override { return m_CaptureFile; }
   CaptureModifications GetCaptureModifications() override { return m_CaptureMods; }
-  const FrameDescription &FrameInfo() override { return m_FrameInfo; }
-  const APIProperties &APIProps() override { return m_APIProps; }
+  FrameDescription FrameInfo() override { return m_FrameInfo; }
+  APIProperties APIProps() override { return m_APIProps; }
   rdcarray<ShaderEncoding> CustomShaderEncodings() override { return m_CustomEncodings; }
   rdcarray<ShaderSourcePrefix> CustomShaderSourcePrefixes() override { return m_CustomPrefixes; }
   rdcarray<ShaderEncoding> TargetShaderEncodings() override { return m_TargetEncodings; }
@@ -310,7 +315,7 @@ public:
   const GLPipe::State *CurGLPipelineState() override { return m_CurGLPipelineState; }
   const VKPipe::State *CurVulkanPipelineState() override { return m_CurVulkanPipelineState; }
   const PipeState &CurPipelineState() override { return *m_CurPipelineState; }
-  PersistantConfig &Config() override { return m_Config; }
+  PersistentConfig &Config() override { return m_Config; }
 private:
   ReplayManager m_Replay;
 
@@ -321,7 +326,7 @@ private:
   const PipeState *m_CurPipelineState;
   PipeState m_DummyPipelineState;
 
-  PersistantConfig &m_Config;
+  PersistentConfig &m_Config;
 
   QVector<ICaptureViewer *> m_CaptureViewers;
 
@@ -349,6 +354,9 @@ private:
 
   bool SaveEdits();
   void LoadEdits(const QString &data);
+
+  void AddExtensionWatches(rdcstr filePath);
+  void ExtensionTouched(const QString &path);
 
   void CacheResources();
   rdcstr GetResourceNameUnsuffixed(const ResourceDescription *desc) const;
@@ -438,6 +446,7 @@ private:
 
   QList<QObject *> m_PendingExtensionObjects;
   QMap<rdcstr, QList<QObject *>> m_ExtensionObjects;
+  rdcarray<rdcstr> m_DirtyExtensions;
 
   QList<QPointer<RegisteredMenuItem>> m_RegisteredMenuItems;
 
@@ -446,6 +455,7 @@ private:
   MiniQtHelper *m_QtHelper = NULL;
 
   QFileSystemWatcher *m_Watcher = NULL;
+  QFileSystemWatcher *m_ExtensionWatcher = NULL;
 
   // Windows
   MainWindow *m_MainWindow = NULL;

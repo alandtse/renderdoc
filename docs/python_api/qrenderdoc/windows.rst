@@ -82,6 +82,12 @@ Capture Dialog
 .. autoclass:: qrenderdoc.CaptureDialog
   :members:
 
+.. autoclass:: qrenderdoc.CaptureConnection
+  :members:
+
+.. autoclass:: qrenderdoc.ConnectedTempCapture
+  :members:
+
 Debug Messages
 --------------
 

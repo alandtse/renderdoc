@@ -237,19 +237,12 @@ private slots:
   void on_watch_itemChanged(RDTreeWidgetItem *item, int column);
 
   // manual slots
-  void readonly_keyPressed(QKeyEvent *event);
-  void editable_keyPressed(QKeyEvent *event);
   void debug_contextMenu(const QPoint &pos);
   void variables_contextMenu(const QPoint &pos);
   void accessedResources_contextMenu(const QPoint &pos);
   void disassembly_buttonReleased(QMouseEvent *event);
   void disassemble_typeChanged(int index);
   void watch_keyPress(QKeyEvent *event);
-  void performFind();
-  void performFindAll();
-  void resultsDoubleClick(int position, int line);
-  void performReplace();
-  void performReplaceAll();
 
   void snippet_constants();
   void snippet_samplers();
@@ -339,23 +332,7 @@ private:
   ScintillaEdit *m_CurInstructionScintilla = NULL;
   QList<ScintillaEdit *> m_FileScintillas;
 
-  FindReplace *m_FindReplace;
-
-  struct FindState
-  {
-    // hash identifies when the search has changed
-    QString hash;
-
-    // the range identified when the search first occurred (for incremental find/replace)
-    sptr_t start = 0;
-    sptr_t end = 0;
-
-    // the current offset where to search from next time, relative to above range
-    sptr_t offset = 0;
-
-    // the last result
-    QPair<int, int> prevResult;
-  } m_FindState;
+  FindReplace *m_FindReplace = NULL;
 
   SaveCallback m_SaveCallback;
   RevertCallback m_RevertCallback;
@@ -391,8 +368,6 @@ private:
   bool m_TempBreakpoint = false;
 
   std::map<ShaderDirectAccess, rdcstr> m_LogicalBindNames;
-
-  QList<QPair<ScintillaEdit *, int>> m_FindAllResults;
 
   static const int BOOKMARK_MAX_MENU_ENTRY_LENGTH = 40;    // max length of bookmark names in menu
   static const int BOOKMARK_MAX_MENU_ENTRY_COUNT = 30;     // max number of bookmarks listed in menu
@@ -448,9 +423,7 @@ private:
   static const int CURRENT_INDICATOR = 20;
   static const int FINISHED_INDICATOR = 21;
 
-  static const int INDICATOR_FINDRESULT = 0;
   static const int INDICATOR_REGHIGHLIGHT = 1;
-  static const int INDICATOR_FINDALLHIGHLIGHT = 2;
 
   QString targetName(const ShaderProcessingTool &disasm);
 
@@ -501,10 +474,6 @@ private:
   uint32_t CalcUpdateID(uint32_t prevID, rdcstr debugVarName) const;
 
   const ShaderVariable *GetDebugVariable(const DebugVariableReference &r);
-
-  void ensureLineScrolled(ScintillaEdit *s, int i);
-
-  void find(bool down);
 
   void updateEditState();
 

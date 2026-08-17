@@ -3942,6 +3942,8 @@ RDResult WrappedVulkan::ContextReplayLog(CaptureState readType, uint32_t startEv
 {
   m_FrameReader->SetOffset(0);
 
+  m_HasSubmit = false;
+
   ReadSerialiser ser(m_FrameReader, Ownership::Nothing);
 
   ser.SetStringDatabase(&m_StringDB);
@@ -6142,7 +6144,7 @@ void WrappedVulkan::BakeEventNodes(ActionDescription &rootAction)
       {
         if(actionStack.count() == 0)
         {
-          RDCERR("Pop but the action stack is empty");
+          RDCWARN("Pop but the action stack is empty");
           parentAction = &rootAction;
         }
         else

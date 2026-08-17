@@ -150,6 +150,7 @@ public:
   DebugOverlay GetTextureOverlay() override;
   void SetTextureOverlay(DebugOverlay overlay) override;
 
+  TextureDisplay GetTextureDisplay() override { return m_TexDisplay; }
   bool IsZoomAutoFit() override;
   float GetZoomLevel() override;
   void SetZoomLevel(bool autofit, float zoom) override;
@@ -158,6 +159,7 @@ public:
   void SetHistogramRange(float blackpoint, float whitepoint) override;
 
   uint32_t GetChannelVisibilityBits() override;
+  rdcfixedarray<bool, 4> GetChannelVisibility() override;
   void SetChannelVisibility(bool red, bool green, bool blue, bool alpha) override;
 
   // ICaptureViewer
