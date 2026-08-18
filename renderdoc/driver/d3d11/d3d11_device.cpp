@@ -329,6 +329,37 @@ WrappedID3D11Device::~WrappedID3D11Device()
 
   if(!IsStructuredExporting(m_State))
   {
+    // anything left here outlived device teardown; RDCASSERT alone is compiled out in non-devel
+    // builds, so log unconditionally before the unconditional .clear() below erases the evidence
+    if(!WrappedID3D11Buffer::m_BufferList.empty())
+    {
+      RDCERR("%u WrappedID3D11Buffer(s) still alive at device teardown",
+             (uint32_t)WrappedID3D11Buffer::m_BufferList.size());
+      for(const auto &it : WrappedID3D11Buffer::m_BufferList)
+        RDCERR("  leaked buffer %s, %u bytes", ToStr(it.first).c_str(), it.second.length);
+    }
+    if(!WrappedID3D11Texture1D::m_TextureList.empty())
+    {
+      RDCERR("%u WrappedID3D11Texture1D(s) still alive at device teardown",
+             (uint32_t)WrappedID3D11Texture1D::m_TextureList.size());
+      for(const auto &it : WrappedID3D11Texture1D::m_TextureList)
+        RDCERR("  leaked texture1D %s", ToStr(it.first).c_str());
+    }
+    if(!WrappedID3D11Texture2D1::m_TextureList.empty())
+    {
+      RDCERR("%u WrappedID3D11Texture2D(s) still alive at device teardown",
+             (uint32_t)WrappedID3D11Texture2D1::m_TextureList.size());
+      for(const auto &it : WrappedID3D11Texture2D1::m_TextureList)
+        RDCERR("  leaked texture2D %s", ToStr(it.first).c_str());
+    }
+    if(!WrappedID3D11Texture3D1::m_TextureList.empty())
+    {
+      RDCERR("%u WrappedID3D11Texture3D(s) still alive at device teardown",
+             (uint32_t)WrappedID3D11Texture3D1::m_TextureList.size());
+      for(const auto &it : WrappedID3D11Texture3D1::m_TextureList)
+        RDCERR("  leaked texture3D %s", ToStr(it.first).c_str());
+    }
+
     RDCASSERT(WrappedID3D11Buffer::m_BufferList.empty());
     RDCASSERT(WrappedID3D11Texture1D::m_TextureList.empty());
     RDCASSERT(WrappedID3D11Texture2D1::m_TextureList.empty());
