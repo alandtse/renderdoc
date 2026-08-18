@@ -576,7 +576,9 @@ struct TypeConversion<rdcarray<U>, false>
     {
       rdcarray<U> *ptr = NULL;
       int ret = SWIG_ConvertPtr(in, (void **)&ptr, own_type, 0);
-      if(SWIG_IsOK(ret))
+      // SWIG_ConvertPtr succeeds with ptr == NULL for Py_None; fall through to the list
+      // conversion below (a proper TypeError) instead of dereferencing a null pointer.
+      if(SWIG_IsOK(ret) && ptr)
       {
         out = *ptr;
         return SWIG_OK;
