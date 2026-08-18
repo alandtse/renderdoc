@@ -227,8 +227,10 @@ struct EventItemModel : public QAbstractItemModel
 
   void ResetModel()
   {
+    // endResetModel() must fire after state is rebuilt below, not before: Qt lets attached
+    // views/proxies synchronously re-query data() the instant it fires, and m_Actions holds
+    // dangling pointers into the old capture until CreateActionNode() rebuilds it.
     emit beginResetModel();
-    emit endResetModel();
 
     m_Nodes.clear();
     m_RowInParentCache.clear();
@@ -251,6 +253,8 @@ struct EventItemModel : public QAbstractItemModel
     m_FindEIDSearch = false;
 
     RefreshCache();
+
+    emit endResetModel();
   }
 
   void RefreshCache()
