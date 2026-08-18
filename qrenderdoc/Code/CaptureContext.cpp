@@ -1796,13 +1796,17 @@ void CaptureContext::SetEventID(const rdcarray<ICaptureViewer *> &exclude, uint3
   uint32_t prevEventID = m_EventID;
   m_EventID = eventId;
 
-  bool done = false;
-
-  QString tag = lit("replaySetEvent");
+  // heap-allocated so the async job can safely outlive this function's stack frame if a
+  // reentrant call (via ShowProgressDialog's nested event loop below) races with it in flight
+  std::shared_ptr<std::atomic<bool>> done = std::make_shared<std::atomic<bool>>(false);
 
   // we can't return until the event is selected, but a blocking invoke on the UI thread can cause
   // the UI to stall. We ideally want to have at least an interactive UI and a progress bar.
-  m_Replay.AsyncInvoke(tag, [this, eventId, force, &done](IReplayController *r) {
+  //
+  // untagged: AsyncInvoke's tag-based dedup would delete a still-queued job from an earlier
+  // reentrant call (ShowProgressDialog's nested event loop below can re-enter this function)
+  // without ever running it, leaving that call's done flag permanently false
+  m_Replay.AsyncInvoke([this, eventId, force, done](IReplayController *r) {
     r->SetFrameEvent(eventId, force);
     m_CurD3D11PipelineState = r->GetD3D11PipelineState();
     m_CurD3D12PipelineState = r->GetD3D12PipelineState();
@@ -1810,21 +1814,16 @@ void CaptureContext::SetEventID(const rdcarray<ICaptureViewer *> &exclude, uint3
     m_CurVulkanPipelineState = r->GetVulkanPipelineState();
     m_CurPipelineState = &r->GetPipelineState();
 
-    done = true;
+    *done = true;
   });
 
   // wait a short while before displaying the progress dialog (which won't show if we're already
   // done by the time we reach it).
-  // Keep waiting if the current tag is a set event, we don't want to be popping up progress bars
-  // when the user is browsing the frame if it's going slow. If that's the case we'll just block the
-  // UI thread. Instead only pop up the progress bar if some other large task is blocking.
-  for(int i = 0; !done && (i < 100 || m_Replay.GetCurrentProcessingTag().isEmpty() ||
-                           m_Replay.GetCurrentProcessingTag() == tag);
-      i++)
+  for(int i = 0; !done->load() && i < 100; i++)
     QThread::msleep(5);
 
   ShowProgressDialog(m_MainWindow->Widget(), tr("Please wait, working..."),
-                     [&done]() { return done; });
+                     [done]() { return done->load(); });
 
   bool updateSelectedEvent = force || prevSelectedEventID != selectedEventID;
   bool updateEvent = force || prevEventID != eventId;
@@ -3237,22 +3236,23 @@ void CaptureContext::EmbedDependentFiles()
     return;
 
   // Always operate on the capture access (local or remote)
-  QString tag = lit("replayEmbedDependenciesIntoCapture");
-  bool done = false;
+  //
+  // heap-allocated and untagged: AsyncInvoke's tag-based dedup would delete a still-queued job
+  // from an earlier reentrant call (ShowProgressDialog's nested event loop below can re-enter
+  // this function) without ever running it, leaving that call's done flag permanently false
+  std::shared_ptr<std::atomic<bool>> done = std::make_shared<std::atomic<bool>>(false);
 
-  Replay().AsyncInvoke(tag, [this, &done](IReplayController *) {
+  Replay().AsyncInvoke([this, done](IReplayController *) {
     m_Replay.GetCaptureAccess()->EmbedDependenciesIntoCapture();
-    done = true;
+    *done = true;
   });
 
   // wait a short while before displaying the progress dialog
-  for(int i = 0; !done && (i < 100 || m_Replay.GetCurrentProcessingTag().isEmpty() ||
-                           m_Replay.GetCurrentProcessingTag() == tag);
-      i++)
+  for(int i = 0; !done->load() && i < 100; i++)
     QThread::msleep(5);
 
   ShowProgressDialog(m_MainWindow->Widget(), tr("Please wait, working..."),
-                     [&done]() { return done; });
+                     [done]() { return done->load(); });
 
   // Local replay
   if(m_Replay.GetCaptureFile())
@@ -3282,22 +3282,23 @@ void CaptureContext::RemoveDependentFiles()
     return;
 
   // Always operate on the capture access (local or remote)
-  QString tag = lit("replayRemoveDependenciesFromCapture");
-  bool done = false;
+  //
+  // heap-allocated and untagged: AsyncInvoke's tag-based dedup would delete a still-queued job
+  // from an earlier reentrant call (ShowProgressDialog's nested event loop below can re-enter
+  // this function) without ever running it, leaving that call's done flag permanently false
+  std::shared_ptr<std::atomic<bool>> done = std::make_shared<std::atomic<bool>>(false);
 
-  Replay().AsyncInvoke(tag, [this, &done](IReplayController *) {
+  Replay().AsyncInvoke([this, done](IReplayController *) {
     m_Replay.GetCaptureAccess()->RemoveDependenciesFromCapture();
-    done = true;
+    *done = true;
   });
 
   // wait a short while before displaying the progress dialog
-  for(int i = 0; !done && (i < 100 || m_Replay.GetCurrentProcessingTag().isEmpty() ||
-                           m_Replay.GetCurrentProcessingTag() == tag);
-      i++)
+  for(int i = 0; !done->load() && i < 100; i++)
     QThread::msleep(5);
 
   ShowProgressDialog(m_MainWindow->Widget(), tr("Please wait, working..."),
-                     [&done]() { return done; });
+                     [done]() { return done->load(); });
 
   // Local replay
   if(m_Replay.GetCaptureFile())
