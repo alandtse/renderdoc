@@ -36,6 +36,7 @@
 #include <QProgressDialog>
 #include <QRegularExpression>
 #include <QTimer>
+#include <memory>
 #include "Code/Resources.h"
 #include "Code/pyrenderdoc/PythonContext.h"
 #include "Widgets/AnnotationDisplay.h"
@@ -1290,6 +1291,15 @@ void CaptureContext::CacheResources()
   m_ShaderFilenamesCached = false;
 }
 
+// Heap-allocated so the async job can safely outlive this function's stack frame if a capture
+// close/reload races with it in flight. `done` is atomic: written on the replay thread, polled on
+// the UI thread.
+struct ShaderFilenameCacheJob
+{
+  std::atomic<bool> done{false};
+  QMap<ResourceId, rdcarray<rdcstr>> filenames;
+};
+
 void CaptureContext::EnsureShaderFilenamesCached()
 {
   if(m_ShaderFilenamesCached)
@@ -1303,36 +1313,48 @@ void CaptureContext::EnsureShaderFilenamesCached()
   if(shaders.empty())
     return;
 
-  bool done = false;
-  QMap<ResourceId, rdcarray<rdcstr>> tempFilenames;
+  // detect being superseded by a close/reload while this job is queued/running, so we don't
+  // write stale results into a different (or no longer loaded) capture
+  int gen = m_ShaderFilenameGen.load();
+  std::shared_ptr<ShaderFilenameCacheJob> job = std::make_shared<ShaderFilenameCacheJob>();
 
-  m_Replay.AsyncInvoke(
-      lit("CacheShaderFilenames"), [&done, &tempFilenames, shaders](IReplayController *r) {
-        for(ResourceId id : shaders)
+  // untagged: AsyncInvoke's tag-based dedup would delete a still-queued job from an earlier
+  // reentrant call (ShowProgressDialog's nested event loop below can re-enter this function)
+  m_Replay.AsyncInvoke([this, job, shaders, gen](IReplayController *r) {
+    if(gen == m_ShaderFilenameGen.load())
+    {
+      for(ResourceId id : shaders)
+      {
+        const ShaderReflection *refl = r->GetShader(ResourceId(), id, ShaderEntryPoint());
+        if(refl && refl->debugInfo.files.count() > 0)
         {
-          const ShaderReflection *refl = r->GetShader(ResourceId(), id, ShaderEntryPoint());
-          if(refl && refl->debugInfo.files.count() > 0)
-          {
-            rdcarray<rdcstr> filenames;
-            for(const ShaderSourceFile &file : refl->debugInfo.files)
-              if(!file.filename.empty())
-                filenames.push_back(file.filename);
-            if(!filenames.empty())
-              tempFilenames[id] = filenames;
-          }
+          rdcarray<rdcstr> filenames;
+          for(const ShaderSourceFile &file : refl->debugInfo.files)
+            if(!file.filename.empty())
+              filenames.push_back(file.filename);
+          if(!filenames.empty())
+            job->filenames[id] = filenames;
         }
-        done = true;
-      });
+      }
 
-  for(int i = 0; !done && i < 100; i++)
+      GUIInvoke::call(m_MainWindow, [this, job, gen]() {
+        if(gen == m_ShaderFilenameGen.load())
+        {
+          m_ShaderFilenames = job->filenames;
+          m_ShaderFilenamesCached = true;
+          m_CustomNameCachedID++;
+        }
+      });
+    }
+
+    job->done = true;
+  });
+
+  for(int i = 0; !job->done.load() && i < 100; i++)
     QThread::msleep(5);
 
   ShowProgressDialog(m_MainWindow->Widget(), tr("Building shader index..."),
-                     [&done]() { return done; });
-
-  m_ShaderFilenames = tempFilenames;
-  m_ShaderFilenamesCached = true;
-  m_CustomNameCachedID++;
+                     [job]() { return job->done.load(); });
 }
 
 void CaptureContext::RecompressCapture()
@@ -1575,6 +1597,7 @@ void CaptureContext::CloseCapture()
 {
   m_ShaderFilenames.clear();
   m_ShaderFilenamesCached = false;
+  m_ShaderFilenameGen.fetch_add(1);
 
   if(!m_CaptureLoaded)
     return;

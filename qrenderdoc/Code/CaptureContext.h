@@ -30,6 +30,7 @@
 #include <QMessageBox>
 #include <QString>
 #include <QtWidgets/QWidget>
+#include <atomic>
 #include "Interface/QRDInterface.h"
 #include "ReplayManager.h"
 
@@ -422,6 +423,9 @@ private:
   QMap<ResourceId, QString> m_CustomNames;
   QMap<ResourceId, rdcarray<rdcstr>> m_ShaderFilenames;
   bool m_ShaderFilenamesCached = false;
+  // bumped on every CloseCapture() so an in-flight EnsureShaderFilenamesCached() async job can
+  // detect it's been superseded and avoid writing stale results into a different/closed capture.
+  std::atomic<int> m_ShaderFilenameGen{0};
   int m_CustomNameCachedID = 1;
 
   // map orig replaced -> edited replacement ID
