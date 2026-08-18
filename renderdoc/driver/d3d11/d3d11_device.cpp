@@ -325,6 +325,21 @@ WrappedID3D11Device::~WrappedID3D11Device()
   SAFE_RELEASE(m_WrappedVideo.m_pReal1);
   SAFE_RELEASE(m_WrappedVideo.m_pReal2);
   SAFE_RELEASE(m_WrappedDebug.m_pDebug);
+
+  // ask the driver to discard any internal buffers it's pooled for reuse (e.g. staging/shadow
+  // copies from output rendering during replay) before the final release, so a closed capture's
+  // memory footprint matches one that was never browsed. See IDXGIDevice3::Trim documentation --
+  // this is exactly what it's for, just normally called by apps going idle rather than on replay
+  // device teardown.
+  if(m_pDevice)
+  {
+    IDXGIDevice3 *dxgiDevice3 = NULL;
+    m_pDevice->QueryInterface(__uuidof(IDXGIDevice3), (void **)&dxgiDevice3);
+    if(dxgiDevice3)
+      dxgiDevice3->Trim();
+    SAFE_RELEASE(dxgiDevice3);
+  }
+
   SAFE_RELEASE(m_pDevice);
 
   if(!IsStructuredExporting(m_State))
