@@ -36,7 +36,6 @@
 #include <QProgressDialog>
 #include <QRegularExpression>
 #include <QTimer>
-#include <memory>
 #include "Code/Resources.h"
 #include "Code/pyrenderdoc/PythonContext.h"
 #include "Widgets/AnnotationDisplay.h"
@@ -1291,15 +1290,6 @@ void CaptureContext::CacheResources()
   m_ShaderFilenamesCached = false;
 }
 
-// Heap-allocated so the async job can safely outlive this function's stack frame if a capture
-// close/reload races with it in flight. `done` is atomic: written on the replay thread, polled on
-// the UI thread.
-struct ShaderFilenameCacheJob
-{
-  std::atomic<bool> done{false};
-  QMap<ResourceId, rdcarray<rdcstr>> filenames;
-};
-
 void CaptureContext::EnsureShaderFilenamesCached()
 {
   if(m_ShaderFilenamesCached)
@@ -1313,48 +1303,38 @@ void CaptureContext::EnsureShaderFilenamesCached()
   if(shaders.empty())
     return;
 
-  // detect being superseded by a close/reload while this job is queued/running, so we don't
-  // write stale results into a different (or no longer loaded) capture
+  // detect being superseded by a close/reload while this job is in flight, so we don't write
+  // stale results into a different (or no longer loaded) capture
   int gen = m_ShaderFilenameGen.load();
-  std::shared_ptr<ShaderFilenameCacheJob> job = std::make_shared<ShaderFilenameCacheJob>();
+  QMap<ResourceId, rdcarray<rdcstr>> filenames;
 
-  // untagged: AsyncInvoke's tag-based dedup would delete a still-queued job from an earlier
-  // reentrant call (ShowProgressDialog's nested event loop below can re-enter this function)
-  m_Replay.AsyncInvoke([this, job, shaders, gen](IReplayController *r) {
-    if(gen == m_ShaderFilenameGen.load())
-    {
-      for(ResourceId id : shaders)
-      {
-        const ShaderReflection *refl = r->GetShader(ResourceId(), id, ShaderEntryPoint());
-        if(refl && refl->debugInfo.files.count() > 0)
-        {
-          rdcarray<rdcstr> filenames;
-          for(const ShaderSourceFile &file : refl->debugInfo.files)
-            if(!file.filename.empty())
-              filenames.push_back(file.filename);
-          if(!filenames.empty())
-            job->filenames[id] = filenames;
-        }
-      }
+  ReplayBlockingInvoke(m_Replay, m_MainWindow->Widget(), tr("Building shader index..."),
+                       [this, shaders, gen, &filenames](IReplayController *r) {
+                         if(gen != m_ShaderFilenameGen.load())
+                           return;
 
-      GUIInvoke::call(m_MainWindow, [this, job, gen]() {
-        if(gen == m_ShaderFilenameGen.load())
-        {
-          m_ShaderFilenames = job->filenames;
-          m_ShaderFilenamesCached = true;
-          m_CustomNameCachedID++;
-        }
-      });
-    }
+                         for(ResourceId id : shaders)
+                         {
+                           const ShaderReflection *refl =
+                               r->GetShader(ResourceId(), id, ShaderEntryPoint());
+                           if(refl && refl->debugInfo.files.count() > 0)
+                           {
+                             rdcarray<rdcstr> names;
+                             for(const ShaderSourceFile &file : refl->debugInfo.files)
+                               if(!file.filename.empty())
+                                 names.push_back(file.filename);
+                             if(!names.empty())
+                               filenames[id] = names;
+                           }
+                         }
+                       });
 
-    job->done = true;
-  });
-
-  for(int i = 0; !job->done.load() && i < 100; i++)
-    QThread::msleep(5);
-
-  ShowProgressDialog(m_MainWindow->Widget(), tr("Building shader index..."),
-                     [job]() { return job->done.load(); });
+  if(gen == m_ShaderFilenameGen.load())
+  {
+    m_ShaderFilenames = filenames;
+    m_ShaderFilenamesCached = true;
+    m_CustomNameCachedID++;
+  }
 }
 
 void CaptureContext::RecompressCapture()
@@ -1796,34 +1776,17 @@ void CaptureContext::SetEventID(const rdcarray<ICaptureViewer *> &exclude, uint3
   uint32_t prevEventID = m_EventID;
   m_EventID = eventId;
 
-  // heap-allocated so the async job can safely outlive this function's stack frame if a
-  // reentrant call (via ShowProgressDialog's nested event loop below) races with it in flight
-  std::shared_ptr<std::atomic<bool>> done = std::make_shared<std::atomic<bool>>(false);
-
   // we can't return until the event is selected, but a blocking invoke on the UI thread can cause
   // the UI to stall. We ideally want to have at least an interactive UI and a progress bar.
-  //
-  // untagged: AsyncInvoke's tag-based dedup would delete a still-queued job from an earlier
-  // reentrant call (ShowProgressDialog's nested event loop below can re-enter this function)
-  // without ever running it, leaving that call's done flag permanently false
-  m_Replay.AsyncInvoke([this, eventId, force, done](IReplayController *r) {
-    r->SetFrameEvent(eventId, force);
-    m_CurD3D11PipelineState = r->GetD3D11PipelineState();
-    m_CurD3D12PipelineState = r->GetD3D12PipelineState();
-    m_CurGLPipelineState = r->GetGLPipelineState();
-    m_CurVulkanPipelineState = r->GetVulkanPipelineState();
-    m_CurPipelineState = &r->GetPipelineState();
-
-    *done = true;
-  });
-
-  // wait a short while before displaying the progress dialog (which won't show if we're already
-  // done by the time we reach it).
-  for(int i = 0; !done->load() && i < 100; i++)
-    QThread::msleep(5);
-
-  ShowProgressDialog(m_MainWindow->Widget(), tr("Please wait, working..."),
-                     [done]() { return done->load(); });
+  ReplayBlockingInvoke(m_Replay, m_MainWindow->Widget(), tr("Please wait, working..."),
+                       [this, eventId, force](IReplayController *r) {
+                         r->SetFrameEvent(eventId, force);
+                         m_CurD3D11PipelineState = r->GetD3D11PipelineState();
+                         m_CurD3D12PipelineState = r->GetD3D12PipelineState();
+                         m_CurGLPipelineState = r->GetGLPipelineState();
+                         m_CurVulkanPipelineState = r->GetVulkanPipelineState();
+                         m_CurPipelineState = &r->GetPipelineState();
+                       });
 
   bool updateSelectedEvent = force || prevSelectedEventID != selectedEventID;
   bool updateEvent = force || prevEventID != eventId;
@@ -3236,23 +3199,9 @@ void CaptureContext::EmbedDependentFiles()
     return;
 
   // Always operate on the capture access (local or remote)
-  //
-  // heap-allocated and untagged: AsyncInvoke's tag-based dedup would delete a still-queued job
-  // from an earlier reentrant call (ShowProgressDialog's nested event loop below can re-enter
-  // this function) without ever running it, leaving that call's done flag permanently false
-  std::shared_ptr<std::atomic<bool>> done = std::make_shared<std::atomic<bool>>(false);
-
-  Replay().AsyncInvoke([this, done](IReplayController *) {
-    m_Replay.GetCaptureAccess()->EmbedDependenciesIntoCapture();
-    *done = true;
-  });
-
-  // wait a short while before displaying the progress dialog
-  for(int i = 0; !done->load() && i < 100; i++)
-    QThread::msleep(5);
-
-  ShowProgressDialog(m_MainWindow->Widget(), tr("Please wait, working..."),
-                     [done]() { return done->load(); });
+  ReplayBlockingInvoke(
+      m_Replay, m_MainWindow->Widget(), tr("Please wait, working..."),
+      [this](IReplayController *) { m_Replay.GetCaptureAccess()->EmbedDependenciesIntoCapture(); });
 
   // Local replay
   if(m_Replay.GetCaptureFile())
@@ -3282,23 +3231,9 @@ void CaptureContext::RemoveDependentFiles()
     return;
 
   // Always operate on the capture access (local or remote)
-  //
-  // heap-allocated and untagged: AsyncInvoke's tag-based dedup would delete a still-queued job
-  // from an earlier reentrant call (ShowProgressDialog's nested event loop below can re-enter
-  // this function) without ever running it, leaving that call's done flag permanently false
-  std::shared_ptr<std::atomic<bool>> done = std::make_shared<std::atomic<bool>>(false);
-
-  Replay().AsyncInvoke([this, done](IReplayController *) {
-    m_Replay.GetCaptureAccess()->RemoveDependenciesFromCapture();
-    *done = true;
-  });
-
-  // wait a short while before displaying the progress dialog
-  for(int i = 0; !done->load() && i < 100; i++)
-    QThread::msleep(5);
-
-  ShowProgressDialog(m_MainWindow->Widget(), tr("Please wait, working..."),
-                     [done]() { return done->load(); });
+  ReplayBlockingInvoke(
+      m_Replay, m_MainWindow->Widget(), tr("Please wait, working..."),
+      [this](IReplayController *) { m_Replay.GetCaptureAccess()->RemoveDependenciesFromCapture(); });
 
   // Local replay
   if(m_Replay.GetCaptureFile())

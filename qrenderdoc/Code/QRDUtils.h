@@ -36,6 +36,8 @@
 #include <QSortFilterProxyModel>
 #include <QStyledItemDelegate>
 #include <QToolButton>
+#include <atomic>
+#include <memory>
 #include "Code/Interface/QRDInterface.h"
 
 #if !defined(RELEASE) && !defined(__FreeBSD__)
@@ -930,6 +932,16 @@ void RevealFilenameInExternalFileBrowser(const QString &filePath);
 void ShowProgressDialog(QWidget *window, const QString &labelText, ProgressFinishedMethod finished,
                         ProgressUpdateMethod update = ProgressUpdateMethod(),
                         ProgressCancelMethod cancel = ProgressCancelMethod());
+
+// Runs `work` on the replay thread and blocks the calling (UI) thread until it completes,
+// showing a progress dialog (see ShowProgressDialog) if it takes a while. The completion flag is
+// heap-allocated and the AsyncInvoke is untagged, so `work` is always the thing that eventually
+// runs and signals -- unlike a stack-local flag captured by reference, it can't be left dangling
+// by a reentrant call (ShowProgressDialog pumps the Qt event loop) racing a tag-deduped queue
+// entry. Because this call doesn't return until `work` has actually executed, `work` may safely
+// capture the caller's own locals by reference to report results back out.
+void ReplayBlockingInvoke(IReplayManager &replay, QWidget *progressParent,
+                          const QString &progressText, std::function<void(IReplayController *)> work);
 
 void UpdateTransferProgress(qint64 xfer, qint64 total, QElapsedTimer *timer,
                             QProgressBar *progressBar, QLabel *progressLabel, QString progressText);

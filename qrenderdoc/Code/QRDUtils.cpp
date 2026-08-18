@@ -3426,6 +3426,24 @@ void ShowProgressDialog(QWidget *window, const QString &labelText, ProgressFinis
     cancel();
 }
 
+void ReplayBlockingInvoke(IReplayManager &replay, QWidget *progressParent,
+                          const QString &progressText, std::function<void(IReplayController *)> work)
+{
+  std::shared_ptr<std::atomic<bool>> done = std::make_shared<std::atomic<bool>>(false);
+
+  replay.AsyncInvoke([work, done](IReplayController *r) {
+    work(r);
+    *done = true;
+  });
+
+  // wait a short while before displaying the progress dialog (which won't show if we're already
+  // done by the time we reach it)
+  for(int i = 0; !done->load() && i < 100; i++)
+    QThread::msleep(5);
+
+  ShowProgressDialog(progressParent, progressText, [done]() { return done->load(); });
+}
+
 void UpdateTransferProgress(qint64 xfer, qint64 total, QElapsedTimer *timer,
                             QProgressBar *progressBar, QLabel *progressLabel, QString progressText)
 {

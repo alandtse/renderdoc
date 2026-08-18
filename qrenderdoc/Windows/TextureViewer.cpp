@@ -4222,33 +4222,23 @@ void TextureViewer::on_debugPixelContext_clicked()
   if(m_TexDisplay.flipY)
     y = (int)(mipHeight - 1) - y;
 
-  bool done = false;
-  ShaderDebugTrace *trace = NULL;
-
-  uint32_t view = m_TexDisplay.subresource.slice - m_Following.GetFirstArraySlice(m_Ctx);
-  m_Ctx.Replay().AsyncInvoke([this, &trace, &done, x, y, view](IReplayController *r) {
-    DebugPixelInputs inputs;
-    inputs.sample = m_TexDisplay.subresource.sample;
-    inputs.view = view;
-    trace = r->DebugPixel((uint32_t)x, (uint32_t)y, inputs);
-
-    if(trace->debugger == NULL)
-    {
-      r->FreeTrace(trace);
-      trace = NULL;
-    }
-
-    done = true;
-  });
-
   QString debugContext = tr("Pixel %1,%2").arg(x).arg(y);
 
-  // wait a short while before displaying the progress dialog (which won't show if we're already
-  // done by the time we reach it)
-  for(int i = 0; !done && i < 100; i++)
-    QThread::msleep(5);
+  uint32_t view = m_TexDisplay.subresource.slice - m_Following.GetFirstArraySlice(m_Ctx);
+  ShaderDebugTrace *trace = NULL;
+  ReplayBlockingInvoke(m_Ctx.Replay(), this, tr("Debugging %1").arg(debugContext),
+                       [this, &trace, x, y, view](IReplayController *r) {
+                         DebugPixelInputs inputs;
+                         inputs.sample = m_TexDisplay.subresource.sample;
+                         inputs.view = view;
+                         trace = r->DebugPixel((uint32_t)x, (uint32_t)y, inputs);
 
-  ShowProgressDialog(this, tr("Debugging %1").arg(debugContext), [&done]() { return done; });
+                         if(trace->debugger == NULL)
+                         {
+                           r->FreeTrace(trace);
+                           trace = NULL;
+                         }
+                       });
 
   // if we couldn't debug the pixel on this event, open up a pixel history
   if(!trace)
