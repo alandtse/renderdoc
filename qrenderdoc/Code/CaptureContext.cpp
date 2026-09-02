@@ -95,6 +95,8 @@ CaptureContext::CaptureContext(PersistentConfig &cfg) : m_Config(cfg)
 
   qApp->setApplicationVersion(QString::fromLatin1(RENDERDOC_GetVersionString()));
 
+  PythonContext::setCtxGlobal(*this);
+
   m_Icon = new QIcon();
   m_Icon->addFile(QStringLiteral(":/logo.svg"), QSize(), QIcon::Normal, QIcon::Off);
 
@@ -422,6 +424,7 @@ rdcarray<ExtensionMetadata> CaptureContext::GetInstalledExtensions()
           ext.filePath = fileinfo.absolutePath();
 
           ext.hasChanges = m_DirtyExtensions.contains(rdcstr(package));
+          ext.failedLoad = m_FailedExtensions.contains(rdcstr(package));
 
           ext.extensionAPI = 1;
           if(json.contains(lit("extension_api")))
@@ -563,6 +566,7 @@ rdcstr CaptureContext::LoadExtension(rdcstr name)
       m_ExtensionObjects[name].swap(m_PendingExtensionObjects);
 
       m_DirtyExtensions.removeOne(name);
+      m_FailedExtensions.removeOne(name);
 
       for(const ExtensionMetadata &e : GetInstalledExtensions())
         if(e.package == name)
@@ -571,6 +575,7 @@ rdcstr CaptureContext::LoadExtension(rdcstr name)
     else
     {
       m_ExtensionObjects.remove(name);
+      m_FailedExtensions.push_back(name);
 
       for(QObject *o : m_PendingExtensionObjects)
         delete o;
@@ -616,7 +621,9 @@ void CaptureContext::RegisterWindowMenu(WindowMenu base, const rdcarray<rdcstr> 
     return;
   }
 
-  std::function<void()> slotcallback = [this, callback]() { callback(this, {}); };
+  std::function<void()> slotcallback = [callback]() {
+    callback(PythonContext::GetExtensionPyrenderdoc(), {});
+  };
 
   // if it's a new menu, GetBaseMenu already did the work, so skip the 0th element of submenus
   if(base == WindowMenu::NewMenu)
@@ -688,12 +695,12 @@ void CaptureContext::MenuDisplaying(ContextMenu contextMenu, QMenu *menu,
   {
     if(item->context == contextMenu || item->context == contextMenuAlt)
     {
-      AddSortedMenuItem(menu, true, item->submenus, [this, item, data]() {
+      AddSortedMenuItem(menu, true, item->submenus, [item, data]() {
         rdcarray<rdcpair<rdcstr, PyObject *>> args;
 
         PythonContext::ConvertPyArgs(data, args);
 
-        item->callback(this, args);
+        item->callback(PythonContext::GetExtensionPyrenderdoc(), args);
 
         PythonContext::FreePyArgs(args);
       });
@@ -708,12 +715,12 @@ void CaptureContext::MenuDisplaying(PanelMenu panelMenu, QMenu *menu, QWidget *e
   {
     if(item->panel == panelMenu)
     {
-      AddSortedMenuItem(menu, false, item->submenus, [this, item, data]() {
+      AddSortedMenuItem(menu, false, item->submenus, [item, data]() {
         rdcarray<rdcpair<rdcstr, PyObject *>> args;
 
         PythonContext::ConvertPyArgs(data, args);
 
-        item->callback(this, args);
+        item->callback(PythonContext::GetExtensionPyrenderdoc(), args);
 
         PythonContext::FreePyArgs(args);
       });
