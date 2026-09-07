@@ -589,6 +589,17 @@ See :meth:`ReplayController.BuildCustomShader` for creating an appropriate custo
 )");
   ResourceId customShaderId;
 
+  DOCUMENT(R"(An optional second :class:`ResourceId` bound alongside the custom shader set in
+:data:`customShaderId`, for shaders that need to sample a resource other than the texture being
+displayed (for example a separate depth-stencil target). Ignored unless :data:`customShaderId`
+is set. Has no built-in binding name/register - the custom shader must bind it at whatever fixed
+slot the tool that generated the shader agreed on (currently only used internally, not exposed
+through the user-facing custom shader editor).
+
+:type: ResourceId
+)");
+  ResourceId customShaderDepthId;
+
   DOCUMENT(R"(The subresource of the texture to display.
 
 If the :data:`Subresource.sample` member is set to :data:`ResolveSamples` then a default resolve

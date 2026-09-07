@@ -3657,6 +3657,7 @@ ResourceId D3D11Replay::ApplyCustomShader(TextureDisplay &display)
   disp.xOffset = 0.0f;
   disp.yOffset = 0.0f;
   disp.customShaderId = display.customShaderId;
+  disp.customShaderDepthId = display.customShaderDepthId;
   disp.resourceId = display.resourceId;
   disp.typeCast = display.typeCast;
   disp.backgroundColor = FloatVector(0, 0, 0, 1.0);

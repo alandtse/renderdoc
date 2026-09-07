@@ -28,6 +28,7 @@
 #include <QCheckBox>
 #include <QClipboard>
 #include <QColorDialog>
+#include <QDesktopWidget>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFileSystemWatcher>
@@ -41,6 +42,8 @@
 #include <QPainter>
 #include <QPointer>
 #include <QPushButton>
+#include <QSignalBlocker>
+#include <QSlider>
 #include <QSpinBox>
 #include <QStyledItemDelegate>
 #include <QTextEdit>
@@ -668,6 +671,10 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
                          tr("Histogram Clipping"), tr("Clear Before Pass"), tr("Clear Before Draw"),
                          tr("Quad Overdraw (Pass)"), tr("Quad Overdraw (Draw)"),
                          tr("Triangle Size (Pass)"), tr("Triangle Size (Draw)")});
+  // The "SBS Heatmap" entry (not a real DebugOverlay value - on_overlay_currentIndexChanged
+  // special-cases it to drive the generated custom-shader heatmap instead) is added/removed
+  // dynamically by UI_UpdateSBSHeatmapAvailability() rather than always present, so it's simply
+  // absent from the dropdown until SBS mode is actually available.
 
   ui->textureListFilter->addItems({QString(), tr("Textures"), tr("Render Targets")});
 
@@ -715,6 +722,16 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
   // Actual grid insertion is done in the .ui file (row 3, colspan 2).
   m_SBSEyeCompare = ui->sbsEyeCompare;
   m_SBSEyeCompare->hide();
+
+  // Full-image eye-mismatch heatmap: rendered by a generated custom shader directly into the
+  // display (see rebuildSBSHeatmapShader()), so no Qt-side overlay widget is needed. Settings
+  // changes are debounced so dragging a slider in the SBS settings dialog doesn't recompile the
+  // shader on every intermediate tick.
+  m_SBSHeatmapRebuildDebounce = new QTimer(this);
+  m_SBSHeatmapRebuildDebounce->setSingleShot(true);
+  m_SBSHeatmapRebuildDebounce->setInterval(150);
+  QObject::connect(m_SBSHeatmapRebuildDebounce, &QTimer::timeout, this,
+                   &TextureViewer::rebuildSBSHeatmapShader);
 
   // SBS settings are accessed via right-click on the SBS toggle button.
   ui->sbsToggle->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -1199,6 +1216,7 @@ void TextureViewer::UI_UpdateStatusText()
     pickedText += tr("Right click to pick a pixel");
     ui->jumpOtherEye->setVisible(m_SBSMapper.enabled);
     ui->jumpOtherEye->setEnabled(false);
+    ui->jumpOtherEye->setText(tr("Other Eye"));
   }
 
   // try and keep status text consistent by sticking to the high water mark
@@ -1369,6 +1387,9 @@ void TextureViewer::UI_OnTextureSelectionChanged(bool newAction)
     {
       m_SBSMapper.enabled = shouldSBS;
       ui->sbsToggle->setChecked(shouldSBS);
+      if(!shouldSBS)
+        disableSBSHeatmap();
+      UI_UpdateSBSHeatmapAvailability();
     }
   }
 
@@ -1948,6 +1969,12 @@ void TextureViewer::UI_UpdateChannels()
 #undef DISABLE
 
   m_TexDisplay.flipY = ui->flip_y->isChecked();
+
+  // The heatmap shader always wins over whatever the channels UI above just computed - every
+  // branch above sets customShaderId based on the channels/custom-shader combo state, which
+  // knows nothing about the heatmap toggle.
+  if(m_SBSHeatmapEnabled)
+    m_TexDisplay.customShaderId = m_SBSHeatmapShaderId;
 
   INVOKE_MEMFN(RT_UpdateAndDisplay);
   INVOKE_MEMFN(RT_UpdateVisualRange);
@@ -3218,8 +3245,10 @@ void TextureViewer::OnCaptureClosed()
   ui->viewTexBuffer->setEnabled(false);
   ui->jumpOtherEye->setVisible(false);
   ui->jumpOtherEye->setEnabled(false);
+  ui->jumpOtherEye->setText(tr("Other Eye"));
   if(m_SBSEyeCompare)
     m_SBSEyeCompare->hide();
+  disableSBSHeatmap();
   for(int i = 0; i < 4; i++)
     if(m_PickedCrosshair[i])
       m_PickedCrosshair[i]->hide();
@@ -3230,6 +3259,8 @@ void TextureViewer::OnCaptureClosed()
 void TextureViewer::OnEventChanged(uint32_t eventId)
 {
   m_SBSMatrixCacheEventId = ~0u;
+  m_SBSAnchorPoint = QPoint(-1, -1);
+  m_SBSJumpDestPoint = QPoint(-1, -1);
 
   bool copy = false, clear = false, compute = false;
   Following::GetActionContext(m_Ctx, copy, clear, compute);
@@ -3461,6 +3492,12 @@ void TextureViewer::OnEventChanged(uint32_t eventId)
 
   if(ui->autoFit->isChecked())
     AutoFitRange();
+
+  // The heatmap shader depends on this event's depth buffer and stereo matrices - rebuild it
+  // for the new event.
+  UI_UpdateSBSHeatmapAvailability();
+  if(m_SBSHeatmapEnabled)
+    rebuildSBSHeatmapShader();
 }
 
 QVariant TextureViewer::persistData()
@@ -3636,6 +3673,20 @@ void TextureViewer::zoomOption_returnPressed()
 
 void TextureViewer::on_overlay_currentIndexChanged(int index)
 {
+  if(index == m_SBSHeatmapOverlayIndex)
+  {
+    m_TexDisplay.overlay = DebugOverlay::NoOverlay;
+    enableSBSHeatmapFromOverlay();
+    INVOKE_MEMFN(RT_UpdateAndDisplay);
+    return;
+  }
+
+  // Selecting any other overlay while the heatmap is active turns it off - they're mutually
+  // exclusive (the heatmap is implemented as a custom shader, which real overlays don't compose
+  // with).
+  if(m_SBSHeatmapEnabled)
+    disableSBSHeatmap();
+
   m_TexDisplay.overlay = DebugOverlay::NoOverlay;
 
   if(ui->overlay->currentIndex() > 0)
@@ -4354,6 +4405,81 @@ void TextureViewer::UI_UpdatePickedCrosshair()
   }
 }
 
+// Gates the "SBS Heatmap" overlay entry to D3D11 for now - the custom-shader depth-binding
+// plumbing it relies on (see TextureDisplay::customShaderDepthId) is only implemented for that
+// backend. The entry stays visible but greyed out (and unreachable via the combo) otherwise.
+void TextureViewer::UI_UpdateSBSHeatmapAvailability()
+{
+  bool available = m_SBSMapper.enabled && m_Ctx.IsCaptureLoaded() &&
+                   m_Ctx.APIProps().pipelineType == GraphicsAPI::D3D11;
+
+  if(!available)
+  {
+    // Turn off the heatmap (also bounces the combo off the entry, if selected) before removing
+    // it, so on_overlay_currentIndexChanged never sees a selection pointing at a removed row.
+    disableSBSHeatmap();
+
+    if(m_SBSHeatmapOverlayIndex >= 0)
+    {
+      QSignalBlocker block(ui->overlay);
+      ui->overlay->removeItem(m_SBSHeatmapOverlayIndex);
+      m_SBSHeatmapOverlayIndex = -1;
+    }
+  }
+  else if(m_SBSHeatmapOverlayIndex < 0)
+  {
+    // Not a real DebugOverlay value - on_overlay_currentIndexChanged special-cases this index
+    // to drive the generated custom-shader heatmap instead. Always appended last, so it never
+    // disturbs the 0..14 indices the real DebugOverlay entries are cast from.
+    QSignalBlocker block(ui->overlay);
+    ui->overlay->addItem(tr("SBS Heatmap"));
+    m_SBSHeatmapOverlayIndex = ui->overlay->count() - 1;
+  }
+}
+
+void TextureViewer::enableSBSHeatmapFromOverlay()
+{
+  if(!m_SBSMapper.enabled || m_Ctx.APIProps().pipelineType != GraphicsAPI::D3D11)
+  {
+    // Not applicable - bounce the selection back to None, but say why rather than doing
+    // nothing with zero feedback (the combo item should normally be greyed out for this case
+    // by UI_UpdateSBSHeatmapAvailability, but a stale/racing state update could still let a
+    // selection through).
+    QSignalBlocker block(ui->overlay);
+    ui->overlay->setCurrentIndex(0);
+    if(m_SBSEyeCompare)
+    {
+      m_SBSEyeCompare->setTextFormat(Qt::PlainText);
+      m_SBSEyeCompare->setText(!m_SBSMapper.enabled
+                                   ? tr("SBS Heatmap: enable SBS mode first.")
+                                   : tr("SBS Heatmap: only supported on D3D11 captures."));
+      m_SBSEyeCompare->show();
+    }
+    return;
+  }
+
+  m_SBSHeatmapEnabled = true;
+  m_SBSPrevCustomShaderId = m_TexDisplay.customShaderId;
+  rebuildSBSHeatmapShader();
+}
+
+void TextureViewer::disableSBSHeatmap()
+{
+  if(!m_SBSHeatmapEnabled)
+    return;
+  m_SBSHeatmapEnabled = false;
+  if(ui->overlay->currentIndex() == m_SBSHeatmapOverlayIndex)
+  {
+    QSignalBlocker block(ui->overlay);
+    ui->overlay->setCurrentIndex(0);
+  }
+  m_TexDisplay.customShaderId = m_SBSPrevCustomShaderId;
+  m_TexDisplay.customShaderDepthId = ResourceId();
+  if(m_SBSEyeCompare)
+    m_SBSEyeCompare->hide();
+  INVOKE_MEMFN(RT_UpdateAndDisplay);
+}
+
 // Returns the x-coordinate of the SBS split point in texture pixels, accounting for dynamic
 // resolution. When dynres is active the split is at dynResW/2, not texW/2.
 float TextureViewer::SBSDynResHalfWidth()
@@ -4460,8 +4586,14 @@ void TextureViewer::on_sbsToggle_clicked(bool checked)
   m_SBSMapper.enabled = checked;
   ui->jumpOtherEye->setVisible(checked);
   ui->jumpOtherEye->setEnabled(checked && m_PickedPoint.x() >= 0);
-  if(!checked && m_SBSEyeCompare)
-    m_SBSEyeCompare->hide();
+  if(!checked)
+  {
+    ui->jumpOtherEye->setText(tr("Other Eye"));
+    if(m_SBSEyeCompare)
+      m_SBSEyeCompare->hide();
+    disableSBSHeatmap();
+  }
+  UI_UpdateSBSHeatmapAvailability();
   UI_UpdateStatusText();
 }
 
@@ -4606,6 +4738,21 @@ void TextureViewer::on_jumpOtherEye_clicked()
   if(m_TexDisplay.flipY)
     logicalY = (int)(tex->height - 1) - logicalY;
 
+  // Reprojection is lossy: it snaps to the nearest destination pixel and re-samples the
+  // per-pixel-quantized depth buffer, so recomputing a jump from B back to A can drift from
+  // the original A (worse near depth discontinuities/silhouette edges). If we're currently
+  // sitting exactly on the destination of the last jump, hop back to the exact remembered
+  // source instead of re-deriving it, so a full A -> B -> A cycle is always lossless.
+  QPoint curSrc(srcX, logicalY);
+  if(m_SBSAnchorPoint.x() >= 0 && curSrc == m_SBSJumpDestPoint)
+  {
+    QPoint anchor = m_SBSAnchorPoint;
+    m_SBSAnchorPoint = QPoint(-1, -1);
+    m_SBSJumpDestPoint = QPoint(-1, -1);
+    GotoLocation(MipCoordFromBase(anchor.x(), tex->width), MipCoordFromBase(anchor.y(), tex->height));
+    return;
+  }
+
   // monoUV: per-eye UV in [0,1] of the rendered sub-region.
   float monoUVx = ((float)srcX - (float)eyeIndex * dynResHalfW) / dynResHalfW;
   float monoUVy = (float)logicalY / ((float)texH * dynResScaleY);
@@ -4739,6 +4886,11 @@ void TextureViewer::on_jumpOtherEye_clicked()
     m_SBSEyeCompare->setText(formatSBSCompareLabel(srcVal, dstVal, eyeIndex, texTypeCast, tex));
     m_SBSEyeCompare->show();
   }
+
+  // Remember this hop so a follow-up jump from exactly `result` bounces back to `curSrc`
+  // exactly, instead of recomputing a lossy reprojection that would drift.
+  m_SBSAnchorPoint = curSrc;
+  m_SBSJumpDestPoint = result;
 
   // result is in unflipped base coords; GotoLocation expects mip-level coords.
   GotoLocation(MipCoordFromBase(result.x(), tex->width), MipCoordFromBase(result.y(), tex->height));
@@ -4888,13 +5040,353 @@ void TextureViewer::updateSBSCompare()
       dstVal = r->PickPixel(texId, (uint32_t)result.x(), (uint32_t)result.y(), texSub, texTypeCast);
     }
 
-    GUIInvoke::call(this, [this, srcVal, dstVal, eyeIndex, texTypeCast]() {
+    GUIInvoke::call(this, [this, srcVal, dstVal, eyeIndex, texTypeCast, result]() {
       if(!m_SBSEyeCompare)
         return;
       m_SBSEyeCompare->setTextFormat(Qt::RichText);
       m_SBSEyeCompare->setText(
           formatSBSCompareLabel(srcVal, dstVal, eyeIndex, texTypeCast, GetCurrentTexture()));
       m_SBSEyeCompare->show();
+      ui->jumpOtherEye->setText(tr("Other Eye (%1, %2)").arg(result.x()).arg(result.y()));
+    });
+  });
+}
+
+// Resolves a single ViewProj/ViewProjInverse matrix set for the whole image up front (unlike
+// the single-pixel "Other Eye" jump, which tries each candidate per point until one actually
+// reprojects that point) - a full-image shader needs one internally-consistent set rather than
+// a result quilted from whichever candidate happens to work for a given pixel. Must be called
+// from the replay thread. Returns false if manual matrices aren't enabled and no candidate
+// passes verification.
+bool TextureViewer::ResolveSBSMatrices(IReplayController *r, bool useManualMats,
+                                       const VRFrameBufferMatrices &manualMats,
+                                       const rdcarray<StereoMatrixConfig> &matCandidates,
+                                       int sbsCbufferIndex, VRFrameBufferMatrices &mats)
+{
+  if(useManualMats)
+  {
+    mats = manualMats;
+    return true;
+  }
+
+  int candidateStart =
+      (sbsCbufferIndex >= 0 && sbsCbufferIndex < (int)matCandidates.size()) ? sbsCbufferIndex : 0;
+  int candidateEnd = (sbsCbufferIndex >= 0) ? candidateStart + 1 : (int)matCandidates.size();
+  for(int ci = candidateStart; ci < candidateEnd; ci++)
+  {
+    const StereoMatrixConfig &matCfg = matCandidates[ci];
+    bytebuf cbufData = r->GetBufferData(matCfg.cbufId, matCfg.cbufByteOffset, matCfg.minBytesNeeded);
+    if((int)cbufData.size() < (int)matCfg.minBytesNeeded)
+      continue;
+    VRFrameBufferMatrices cand = {};
+    memcpy(cand.viewProj[0], cbufData.data() + matCfg.viewProjOffset[0], 64);
+    memcpy(cand.viewProj[1], cbufData.data() + matCfg.viewProjOffset[1], 64);
+    memcpy(cand.viewProjInverse[0], cbufData.data() + matCfg.viewProjInvOffset[0], 64);
+    memcpy(cand.viewProjInverse[1], cbufData.data() + matCfg.viewProjInvOffset[1], 64);
+    if(matCfg.hasCameraPosAdjust)
+    {
+      cand.hasCameraPosAdjust = true;
+      memcpy(cand.cameraPosAdjust[0], cbufData.data() + matCfg.cameraPosAdjustOffset[0], 16);
+      memcpy(cand.cameraPosAdjust[1], cbufData.data() + matCfg.cameraPosAdjustOffset[1], 16);
+    }
+    SBSMapper::normalizeConvention(cand);
+    if(matCfg.needsVerification &&
+       !SBSMapper::approxInverse(cand.viewProj[0], cand.viewProjInverse[0]))
+      continue;
+    mats = cand;
+    return true;
+  }
+
+  return false;
+}
+
+// Formats a float4x4 as an HLSL float4x4(...) literal from a row-major VRFrameBufferMatrices
+// matrix (16 floats).
+static QString HLSLMat4(const float m[16])
+{
+  QString s = lit("float4x4(");
+  for(int i = 0; i < 16; i++)
+    s += QFormatStr("%1%2").arg((double)m[i], 0, 'g', 9).arg(i < 15 ? lit(", ") : lit(")"));
+  return s;
+}
+
+QString TextureViewer::generateSBSHeatmapShader(const VRFrameBufferMatrices &mats,
+                                                float dynResHalfW, float renderedW, float renderedH)
+{
+  QString src;
+  src += lit("// Generated by RenderDoc's SBS mismatch heatmap - not user-editable.\n");
+  src +=
+      lit("Texture2DArray<float4> texDisplayTex2DArray : register(RD_FLOAT_2D_ARRAY_BINDING);\n");
+  src += lit("Texture2DArray<float> customDepthTex : register(t30);\n");
+  src += lit("SamplerState pointSampler : register(RD_POINT_SAMPLER_BINDING);\n\n");
+
+  src += QFormatStr("static const float4x4 viewProj0 = %1;\n").arg(HLSLMat4(mats.viewProj[0]));
+  src += QFormatStr("static const float4x4 viewProj1 = %1;\n").arg(HLSLMat4(mats.viewProj[1]));
+  src +=
+      QFormatStr("static const float4x4 viewProjInv0 = %1;\n").arg(HLSLMat4(mats.viewProjInverse[0]));
+  src +=
+      QFormatStr("static const float4x4 viewProjInv1 = %1;\n").arg(HLSLMat4(mats.viewProjInverse[1]));
+  src += QFormatStr("static const bool hasCamPosAdjust = %1;\n")
+             .arg(mats.hasCameraPosAdjust ? lit("true") : lit("false"));
+  src += QFormatStr("static const float3 camPosAdjust0 = float3(%1, %2, %3);\n")
+             .arg((double)mats.cameraPosAdjust[0][0], 0, 'g', 9)
+             .arg((double)mats.cameraPosAdjust[0][1], 0, 'g', 9)
+             .arg((double)mats.cameraPosAdjust[0][2], 0, 'g', 9);
+  src += QFormatStr("static const float3 camPosAdjust1 = float3(%1, %2, %3);\n")
+             .arg((double)mats.cameraPosAdjust[1][0], 0, 'g', 9)
+             .arg((double)mats.cameraPosAdjust[1][1], 0, 'g', 9)
+             .arg((double)mats.cameraPosAdjust[1][2], 0, 'g', 9);
+  src += QFormatStr("static const float dynResHalfW = %1;\n").arg((double)dynResHalfW, 0, 'g', 9);
+  src += QFormatStr("static const float renderedW = %1;\n").arg((double)renderedW, 0, 'g', 9);
+  src += QFormatStr("static const float renderedH = %1;\n").arg((double)renderedH, 0, 'g', 9);
+  src +=
+      QFormatStr("static const float threshold = %1;\n").arg((double)m_SBSHeatmapThreshold, 0, 'g', 9);
+  src += QFormatStr("static const int channelMode = %1;\n").arg(m_SBSHeatmapChannel);
+  src += QFormatStr("static const bool roundTripEnabled = %1;\n")
+             .arg(m_SBSHeatmapRoundTripEnabled ? lit("true") : lit("false"));
+  src += QFormatStr("static const float roundTripThreshold = %1;\n\n")
+             .arg((double)m_SBSRoundTripPixelThreshold, 0, 'g', 9);
+
+  // Ports SBSMapper::reproject (qrenderdoc/Code/SBSMapper.cpp) directly - unproject via the
+  // source eye's ViewProjInverse, optional IPD correction, reproject via the other eye's
+  // ViewProj. Returns false (via the ok out-param) if degenerate or outside [0,1].
+  src += lit(R"(
+bool reproject(float monoU, float monoV, float depth, uint eyeIndex, out float otherU, out float otherV)
+{
+  float4x4 viewProjInv = eyeIndex == 0 ? viewProjInv0 : viewProjInv1;
+  float4x4 viewProjOther = eyeIndex == 0 ? viewProj1 : viewProj0;
+
+  float clipX = monoU * 2.0 - 1.0;
+  float clipY = 1.0 - monoV * 2.0;
+  float4 world = mul(viewProjInv, float4(clipX, clipY, depth, 1.0));
+  if(abs(world.w) < 1e-7)
+  {
+    otherU = 0.0; otherV = 0.0;
+    return false;
+  }
+  world.xyz /= world.w;
+
+  if(hasCamPosAdjust)
+  {
+    float3 srcAdj = eyeIndex == 0 ? camPosAdjust0 : camPosAdjust1;
+    float3 dstAdj = eyeIndex == 0 ? camPosAdjust1 : camPosAdjust0;
+    world.xyz += srcAdj - dstAdj;
+  }
+
+  float4 c = mul(viewProjOther, float4(world.xyz, 1.0));
+  if(abs(c.w) < 1e-7)
+  {
+    otherU = 0.0; otherV = 0.0;
+    return false;
+  }
+  c.xy /= c.w;
+
+  otherU = c.x * 0.5 + 0.5;
+  otherV = -c.y * 0.5 + 0.5;
+  return otherU >= 0.0 && otherU <= 1.0 && otherV >= 0.0 && otherV <= 1.0;
+}
+
+float4 main(float4 pos : SV_Position, float4 uv : TEXCOORD0) : SV_Target0
+{
+  uint slice = RD_SelectedSliceFace();
+  uint mip = RD_SelectedMip();
+  float4 srcColor = texDisplayTex2DArray.SampleLevel(pointSampler, float3(uv.xy, slice), mip);
+
+  float px = uv.x * (dynResHalfW * 2.0);
+  float py = uv.y * renderedH;
+  if(px >= renderedW || py >= renderedH)
+    return srcColor;
+
+  uint eyeIndex = px < dynResHalfW ? 0 : 1;
+  float monoU = (px - eyeIndex * dynResHalfW) / dynResHalfW;
+  float monoV = py / renderedH;
+
+  float depth = customDepthTex.SampleLevel(pointSampler, float3(uv.x, uv.y, slice), 0).r;
+  if(depth <= 0.0 || depth >= 1.0)
+    return srcColor;
+
+  float otherU, otherV;
+  if(!reproject(monoU, monoV, depth, eyeIndex, otherU, otherV))
+    return srcColor;
+
+  uint otherEye = 1 - eyeIndex;
+  float otherPxX = (otherU + otherEye) * dynResHalfW;
+  float otherPxY = otherV * renderedH;
+  float2 otherUV = float2(otherPxX / (dynResHalfW * 2.0), otherPxY / renderedH);
+  float4 dstColor = texDisplayTex2DArray.SampleLevel(pointSampler, float3(otherUV, slice), mip);
+
+  float3 d = srcColor.rgb - dstColor.rgb;
+  float diff;
+  if(channelMode == 1) diff = abs(d.r) * 255.0;
+  else if(channelMode == 2) diff = abs(d.g) * 255.0;
+  else if(channelMode == 3) diff = abs(d.b) * 255.0;
+  else if(channelMode == 4) diff = abs(dot(d, float3(0.2126, 0.7152, 0.0722))) * 255.0;
+  else diff = max(abs(d.r), max(abs(d.g), abs(d.b))) * 255.0;
+
+  bool unreliable = false;
+  if(roundTripEnabled)
+  {
+    float otherDepth = customDepthTex.SampleLevel(pointSampler, float3(otherUV, slice), 0).r;
+    float backU, backV;
+    if(otherDepth <= 0.0 || otherDepth >= 1.0 || !reproject(otherU, otherV, otherDepth, otherEye, backU, backV))
+    {
+      unreliable = true;
+    }
+    else
+    {
+      float backX = (backU + eyeIndex) * dynResHalfW;
+      float backY = backV * renderedH;
+      float driftPx = length(float2(backX - px, backY - py));
+      if(driftPx > roundTripThreshold)
+        unreliable = true;
+    }
+  }
+
+  // Kept low enough that the underlying pixels stay clearly visible through the tint - this is
+  // meant to flag where to look, not replace the image with a solid block of colour.
+  if(unreliable)
+    return lerp(srcColor, float4(80.0, 120.0, 255.0, 255.0) / 255.0, 90.0 / 255.0);
+  if(diff > threshold)
+    return lerp(srcColor, float4(255.0, 60.0, 60.0, 255.0) / 255.0,
+                saturate(80.0 / 255.0 + (diff / 255.0) * 0.35));
+  return srcColor;
+}
+)");
+
+  return src;
+}
+
+void TextureViewer::rebuildSBSHeatmapShader()
+{
+  if(!m_SBSHeatmapEnabled)
+    return;
+
+  if(m_Ctx.APIProps().pipelineType != GraphicsAPI::D3D11)
+  {
+    disableSBSHeatmap();
+    return;
+  }
+
+  TextureDescription *tex = GetCurrentTexture();
+  if(!tex || tex->width == 0 || m_Output == NULL)
+    return;
+
+  uint32_t texW = tex->width;
+  uint32_t texH = tex->height;
+
+  float dynResScaleX = 1.0f, dynResScaleY = 1.0f;
+  computeSBSDynResScale(texW, texH, dynResScaleX, dynResScaleY);
+  float dynResHalfW = (float)texW * dynResScaleX * 0.5f;
+  float renderedW = (float)qMax(1, (int)((float)texW * dynResScaleX));
+  float renderedH = (float)qMax(1, (int)((float)texH * dynResScaleY));
+
+  rdcarray<StereoMatrixConfig> matCandidates;
+  if(m_SBSMatrixReprojEnabled)
+    matCandidates = getCachedStereoMatrices();
+  int sbsCbufferIndex = m_SBSCbufferIndex;
+
+  bool useManualMats = m_SBSUseManualMatrices;
+  VRFrameBufferMatrices manualMats = {};
+  if(useManualMats)
+  {
+    memcpy(manualMats.viewProj[0], m_SBSManualVP[0], 64);
+    memcpy(manualMats.viewProj[1], m_SBSManualVP[1], 64);
+    memcpy(manualMats.viewProjInverse[0], m_SBSManualVPInv[0], 64);
+    memcpy(manualMats.viewProjInverse[1], m_SBSManualVPInv[1], 64);
+    SBSMapper::normalizeConvention(manualMats);
+  }
+
+  Descriptor depthDesc = Following::GetDepthTarget(m_Ctx);
+  ResourceId depthId = depthDesc.resource;
+  if(depthId == ResourceId() || (!useManualMats && matCandidates.empty()))
+  {
+    // No depth target or no stereo matrices to work with - surface why rather than silently
+    // showing nothing (indistinguishable from a working-but-empty heatmap otherwise).
+    if(m_SBSEyeCompare)
+    {
+      m_SBSEyeCompare->setTextFormat(Qt::PlainText);
+      m_SBSEyeCompare->setText(depthId == ResourceId()
+                                   ? tr("SBS Heatmap: no depth target bound at this event.")
+                                   : tr("SBS Heatmap: no stereo matrices detected."));
+      m_SBSEyeCompare->show();
+    }
+    return;
+  }
+
+  // RenderDoc's custom-shader builtins (RD_FLOAT_2D_ARRAY_BINDING, RD_SelectedMip(), etc.) are
+  // not automatically available - the caller must fetch and prepend this prefix before
+  // compiling, same as the user-authored custom shader path (see reloadCustomShaders() above).
+  QString shaderPrefix;
+  for(const ShaderSourcePrefix &prefix : m_Ctx.CustomShaderSourcePrefixes())
+  {
+    if(prefix.encoding == ShaderEncoding::HLSL)
+    {
+      shaderPrefix = QString(prefix.prefix);
+      break;
+    }
+  }
+
+  QPointer<TextureViewer> me(this);
+
+  m_Ctx.Replay().AsyncInvoke(lit("SBSHeatmapShader"), [me, useManualMats, manualMats, matCandidates,
+                                                       sbsCbufferIndex, depthId, dynResHalfW,
+                                                       renderedW, renderedH,
+                                                       shaderPrefix](IReplayController *r) {
+    if(!me)
+      return;
+
+    VRFrameBufferMatrices mats = {};
+    if(!ResolveSBSMatrices(r, useManualMats, manualMats, matCandidates, sbsCbufferIndex, mats))
+    {
+      GUIInvoke::call(me, [me]() {
+        if(!me || !me->m_SBSEyeCompare)
+          return;
+        me->m_SBSEyeCompare->setTextFormat(Qt::PlainText);
+        me->m_SBSEyeCompare->setText(
+            tr("SBS Heatmap: no stereo matrix candidate passed verification."));
+        me->m_SBSEyeCompare->show();
+      });
+      return;
+    }
+
+    QString source =
+        shaderPrefix + me->generateSBSHeatmapShader(mats, dynResHalfW, renderedW, renderedH);
+    rdcstr sourceStr = source.toUtf8().data();
+    bytebuf sourceBytes((const byte *)sourceStr.data(), sourceStr.size());
+
+    ResourceId shaderId;
+    rdcstr errors;
+    rdctie(shaderId, errors) = r->BuildCustomShader("main", ShaderEncoding::HLSL, sourceBytes,
+                                                    ShaderCompileFlags(), ShaderStage::Pixel);
+
+    GUIInvoke::call(me, [me, shaderId, depthId, errors]() {
+      if(!me || !me->m_SBSHeatmapEnabled)
+        return;
+      if(shaderId == ResourceId())
+      {
+        qCritical() << "Failed to build SBS heatmap shader:" << QString(errors);
+        if(me->m_SBSEyeCompare)
+        {
+          me->m_SBSEyeCompare->setTextFormat(Qt::PlainText);
+          me->m_SBSEyeCompare->setText(tr("SBS Heatmap shader failed to build:\n") + QString(errors));
+          me->m_SBSEyeCompare->show();
+        }
+        return;
+      }
+      me->m_SBSHeatmapShaderId = shaderId;
+      me->m_TexDisplay.customShaderId = shaderId;
+      me->m_TexDisplay.customShaderDepthId = depthId;
+      if(me->m_SBSEyeCompare)
+      {
+        me->m_SBSEyeCompare->setTextFormat(Qt::PlainText);
+        me->m_SBSEyeCompare->setText(tr("SBS Heatmap active."));
+        me->m_SBSEyeCompare->show();
+      }
+      QPointer<TextureViewer> me2(me);
+      me->m_Ctx.Replay().AsyncInvoke([me2](IReplayController *r) {
+        if(me2)
+          me2->RT_UpdateAndDisplay(r);
+      });
     });
   });
 }
@@ -5095,6 +5587,104 @@ void TextureViewer::on_sbsSettings_clicked()
          "eye comparison delta row. Positive deltas are green, negative are red."));
   form->addRow(tr("Delta epsilon:"), epsBox);
 
+  // --- Heatmap mismatch threshold ---
+  // Snapshot the live heatmap settings (and the shader/display state they drive) so a Cancel
+  // can revert the preview applied below without a recompile.
+  double origHeatmapThreshold = m_SBSHeatmapThreshold;
+  int origHeatmapChannel = m_SBSHeatmapChannel;
+  bool origHeatmapRoundTrip = m_SBSHeatmapRoundTripEnabled;
+  double origRoundTripPixelThreshold = m_SBSRoundTripPixelThreshold;
+  ResourceId origHeatmapShaderId = m_SBSHeatmapShaderId;
+  ResourceId origCustomShaderId = m_TexDisplay.customShaderId;
+
+  QSlider *heatmapThreshSlider = new QSlider(Qt::Horizontal, &dlg);
+  heatmapThreshSlider->setRange(0, 64);
+  heatmapThreshSlider->setValue((int)m_SBSHeatmapThreshold);
+  QLabel *heatmapThreshLabel = new QLabel(&dlg);
+  auto heatmapThreshLabelText = [](int v) {
+    return QFormatStr("%1 (%2%)").arg(v).arg((double)v / 255.0 * 100.0, 0, 'f', 1);
+  };
+  heatmapThreshLabel->setText(heatmapThreshLabelText(heatmapThreshSlider->value()));
+  heatmapThreshLabel->setMinimumWidth(70);
+  QObject::connect(heatmapThreshSlider, &QSlider::valueChanged, this,
+                   [this, heatmapThreshLabel, heatmapThreshLabelText](int v) {
+                     heatmapThreshLabel->setText(heatmapThreshLabelText(v));
+                     m_SBSHeatmapThreshold = v;
+                     if(m_SBSHeatmapEnabled)
+                       m_SBSHeatmapRebuildDebounce->start();
+                   });
+  QHBoxLayout *heatmapThreshRow = new QHBoxLayout();
+  heatmapThreshRow->addWidget(heatmapThreshSlider);
+  heatmapThreshRow->addWidget(heatmapThreshLabel);
+  QWidget *heatmapThreshRowWidget = new QWidget(&dlg);
+  heatmapThreshRowWidget->setLayout(heatmapThreshRow);
+  heatmapThreshRowWidget->setToolTip(
+      tr("Applies to the mismatch heatmap. Minimum colour difference (out of 255, on the\n"
+         "displayed RGB, measured on the channel(s) selected below) before a pixel is flagged\n"
+         "as mismatched. The default of 10 on 'Any channel' is a rough 'human noticeable on\n"
+         "casual viewing' threshold - lower it to catch subtle divergence, raise it to ignore\n"
+         "per-eye dithering/quantization noise. Updates the heatmap live while this dialog is\n"
+         "open."));
+  form->addRow(tr("Heatmap match threshold:"), heatmapThreshRowWidget);
+
+  // --- Heatmap channel selection ---
+  QComboBox *heatmapChannelCombo = new QComboBox(&dlg);
+  heatmapChannelCombo->addItem(tr("Any channel (max)"), 0);
+  heatmapChannelCombo->addItem(tr("Red"), 1);
+  heatmapChannelCombo->addItem(tr("Green"), 2);
+  heatmapChannelCombo->addItem(tr("Blue"), 3);
+  heatmapChannelCombo->addItem(tr("Luma (perceptual brightness)"), 4);
+  heatmapChannelCombo->setCurrentIndex(qBound(0, m_SBSHeatmapChannel, 4));
+  heatmapChannelCombo->setToolTip(
+      tr("Which channel(s) the match threshold above is measured on:\n"
+         "- Any channel: flags a mismatch on the biggest single-channel difference. Catches\n"
+         "  anything, the safest default.\n"
+         "- Red/Green/Blue: isolates a channel-specific bug, e.g. a post effect, LUT, or fog\n"
+         "  tint applied to only one eye - these often show as a hue/chroma shift rather than\n"
+         "  an overall brightness change, which 'Any channel' can also pick up from unrelated\n"
+         "  per-eye dithering noise on a single channel.\n"
+         "- Luma: perceptual brightness difference only, ignoring pure colour/hue shifts - use\n"
+         "  this to focus on geometry, lighting, or reprojection divergence (what actually\n"
+         "  reads as 'wrong' at a glance in a headset) without tripping on colour grading or\n"
+         "  chromatic aberration differences between eyes."));
+  QObject::connect(heatmapChannelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                   [this, heatmapChannelCombo](int) {
+                     m_SBSHeatmapChannel = heatmapChannelCombo->currentData().toInt();
+                     if(m_SBSHeatmapEnabled)
+                       m_SBSHeatmapRebuildDebounce->start();
+                   });
+  form->addRow(tr("Heatmap channel:"), heatmapChannelCombo);
+
+  // --- Heatmap round-trip verification ---
+  QCheckBox *roundTripCheck = new QCheckBox(tr("Round-trip (back-projection) verification"), &dlg);
+  roundTripCheck->setChecked(m_SBSHeatmapRoundTripEnabled);
+  roundTripCheck->setToolTip(
+      tr("Applies to the mismatch heatmap. Reproject each match back to the source eye and\n"
+         "flag pixels whose round trip drifts more than the threshold below as unreliable,\n"
+         "instead of a plain colour mismatch. Catches occlusion/disocclusion edges that a\n"
+         "one-way diff would falsely flag as a stereo bug."));
+  QObject::connect(roundTripCheck, &QCheckBox::toggled, this, [this](bool checked) {
+    m_SBSHeatmapRoundTripEnabled = checked;
+    if(m_SBSHeatmapEnabled)
+      m_SBSHeatmapRebuildDebounce->start();
+  });
+  form->addRow(roundTripCheck);
+
+  QDoubleSpinBox *driftBox = new QDoubleSpinBox(&dlg);
+  driftBox->setRange(0.0, 64.0);
+  driftBox->setSingleStep(0.5);
+  driftBox->setValue(m_SBSRoundTripPixelThreshold);
+  driftBox->setToolTip(
+      tr("Round-trip drift beyond this many pixels marks a heatmap pixel as\n"
+         "unreliable rather than mismatched."));
+  QObject::connect(driftBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+                   [this](double v) {
+                     m_SBSRoundTripPixelThreshold = v;
+                     if(m_SBSHeatmapEnabled)
+                       m_SBSHeatmapRebuildDebounce->start();
+                   });
+  form->addRow(tr("Round-trip drift threshold (px):"), driftBox);
+
   // --- Manual matrix override section ---
   // Helpers to convert between float4x4 and multi-line text.
   auto matrixToText = [](const float m[16]) -> QString {
@@ -5207,7 +5797,30 @@ void TextureViewer::on_sbsSettings_clicked()
   vbox->addWidget(manualGroup);
   vbox->addWidget(btns);
 
-  if(dlg.exec() == QDialog::Accepted)
+  // Position beside the render viewport rather than centred on top of it (the default), so the
+  // heatmap controls' live preview above is actually visible while this (modal) dialog is open.
+  {
+    QPoint renderTopLeft = ui->render->mapToGlobal(QPoint(0, 0));
+    QRect renderGlobalRect(renderTopLeft, ui->render->size());
+    QRect screenRect = QApplication::desktop()->availableGeometry(ui->render);
+    QSize dlgSize = dlg.sizeHint();
+
+    int x;
+    if(renderGlobalRect.right() + dlgSize.width() <= screenRect.right())
+      x = renderGlobalRect.right() + 8;
+    else if(renderGlobalRect.left() - dlgSize.width() >= screenRect.left())
+      x = renderGlobalRect.left() - dlgSize.width() - 8;
+    else
+      x = qMax(screenRect.left(), screenRect.right() - dlgSize.width());
+    int y = qBound(screenRect.top(), renderTopLeft.y(), screenRect.bottom() - dlgSize.height());
+
+    dlg.move(x, y);
+  }
+
+  bool accepted = dlg.exec() == QDialog::Accepted;
+  m_SBSHeatmapRebuildDebounce->stop();
+
+  if(accepted)
   {
     m_SBSMatrixReprojEnabled = matReprojCheck->isChecked();
     m_SBSCbufferIndex = cbufCombo->currentData().toInt();
@@ -5235,6 +5848,27 @@ void TextureViewer::on_sbsSettings_clicked()
     else
     {
       m_SBSUseManualMatrices = false;
+    }
+
+    // Rebuild unconditionally: matrix/dynres/manual-override fields changed here always need a
+    // real recompile, and this also picks up the very latest heatmap threshold/channel/
+    // round-trip settings even if the debounce timer hadn't fired yet.
+    if(m_SBSHeatmapEnabled)
+      rebuildSBSHeatmapShader();
+  }
+  else
+  {
+    // Revert the live preview applied by the heatmap controls above - restore the snapshotted
+    // shader directly rather than recompiling.
+    m_SBSHeatmapThreshold = origHeatmapThreshold;
+    m_SBSHeatmapChannel = origHeatmapChannel;
+    m_SBSHeatmapRoundTripEnabled = origHeatmapRoundTrip;
+    m_SBSRoundTripPixelThreshold = origRoundTripPixelThreshold;
+    if(m_SBSHeatmapEnabled)
+    {
+      m_SBSHeatmapShaderId = origHeatmapShaderId;
+      m_TexDisplay.customShaderId = origCustomShaderId;
+      INVOKE_MEMFN(RT_UpdateAndDisplay);
     }
   }
 }

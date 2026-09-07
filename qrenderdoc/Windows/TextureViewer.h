@@ -29,6 +29,7 @@
 #include <QMenu>
 #include <QMouseEvent>
 #include <QTime>
+#include <QTimer>
 #include "Code/Interface/QRDInterface.h"
 #include "Code/SBSDetector.h"
 #include "Code/SBSMapper.h"
@@ -265,6 +266,23 @@ private:
   bool detectSBSFrame() const;
   void on_sbsSettings_clicked();
 
+  void UI_UpdateSBSHeatmapAvailability();
+  void enableSBSHeatmapFromOverlay();
+  void disableSBSHeatmap();
+  void rebuildSBSHeatmapShader();
+  QString generateSBSHeatmapShader(const VRFrameBufferMatrices &mats, float dynResHalfW,
+                                   float renderedW, float renderedH);
+
+  // Resolves a single ViewProj/ViewProjInverse matrix set to use for reprojection: manual
+  // override if enabled, else the first detected cbuffer candidate that passes verification
+  // (or the specifically configured one). Must be called from the replay thread. Shared by
+  // on_jumpOtherEye_clicked/updateSBSCompare/rebuildSBSHeatmapShader so the selection logic
+  // only lives in one place.
+  static bool ResolveSBSMatrices(IReplayController *r, bool useManualMats,
+                                 const VRFrameBufferMatrices &manualMats,
+                                 const rdcarray<StereoMatrixConfig> &matCandidates,
+                                 int sbsCbufferIndex, VRFrameBufferMatrices &mats);
+
   void HighlightUsage();
 
   void SelectPreview(ResourcePreview *prev);
@@ -461,4 +479,58 @@ private:
   float m_SBSManualVP[2][16];
   float m_SBSManualVPInv[2][16];
   float m_SBSManualCamPos[2][4];
+
+  // Anchor for "Jump to Other Eye" round-tripping. Reprojection is lossy (nearest-pixel
+  // rounding plus per-pixel depth quantization), so bouncing A -> B -> A by re-running the
+  // reprojection at B would drift from A. Instead, when the current pick is exactly the last
+  // jump's destination, jump back to the exact remembered source instead of recomputing.
+  // Reset in OnEventChanged since it is only valid for the event it was captured at.
+  QPoint m_SBSAnchorPoint = QPoint(-1, -1);
+  QPoint m_SBSJumpDestPoint = QPoint(-1, -1);
+
+  // Full-image mismatch heatmap: flags pixels where left/right eye reprojection disagrees.
+  // Rendered by a generated custom shader directly into the displayed image (see
+  // rebuildSBSHeatmapShader()) - a real GPU overlay, not a Qt widget, so it composites
+  // correctly with ui->render's WA_PaintOnScreen surface. D3D11-only for now (see
+  // UI_UpdateSBSHeatmapAvailability()).
+  bool m_SBSHeatmapEnabled = false;
+
+  // When true, each match is also reprojected back to the source eye; drift beyond
+  // m_SBSRoundTripPixelThreshold is flagged as "unreliable" (occlusion boundary) rather than
+  // "mismatched", instead of relying on a one-way diff alone.
+  bool m_SBSHeatmapRoundTripEnabled = false;
+  double m_SBSRoundTripPixelThreshold = 1.5;
+
+  // Minimum colour difference (0-255, display-encoded domain) before a pixel is flagged as
+  // mismatched; which channel(s) this is measured on is m_SBSHeatmapChannel. Default of 10 is a
+  // rough "human noticeable on casual viewing" threshold: single-step dithering/quantization
+  // noise between independently-rendered eyes is typically within a few levels, while real
+  // content differences (wrong geometry, missing effects, lighting divergence) tend to show up
+  // well above that. Deliberately separate from m_SBSDeltaEpsilon, which compares raw pixel
+  // values (not display bytes) for the single-pixel eye-compare label.
+  double m_SBSHeatmapThreshold = 10.0;
+
+  // Which channel(s) the heatmap threshold above is measured on: 0 = max(R,G,B) (any channel
+  // mismatching is flagged - the default, catches anything), 1/2/3 = R/G/B only (isolates a
+  // channel-specific bug, e.g. a post effect or LUT applied to only one eye, which often shows
+  // as a hue/chroma shift more than an overall brightness change), 4 = luma (perceptual
+  // brightness difference - ignores pure colour/hue shifts to focus on geometry/lighting
+  // divergence, the kind of thing that actually reads as "wrong" at a glance in a VR headset).
+  int m_SBSHeatmapChannel = 0;
+
+  // The currently-compiled heatmap shader (rebuilt by rebuildSBSHeatmapShader() whenever the
+  // event, matrices, or any of the settings above change) and whatever custom shader the user
+  // had selected via ui->customShader before the heatmap toggle overrode it, restored when the
+  // heatmap is turned back off.
+  ResourceId m_SBSHeatmapShaderId;
+  ResourceId m_SBSPrevCustomShaderId;
+
+  // Debounces settings-dialog slider/combo changes so dragging doesn't recompile the shader on
+  // every intermediate tick - restarted on each change, fires rebuildSBSHeatmapShader() ~150ms
+  // after the last one.
+  QTimer *m_SBSHeatmapRebuildDebounce = NULL;
+
+  // Index of the "SBS Heatmap" entry appended to ui->overlay - not a real DebugOverlay value,
+  // special-cased in on_overlay_currentIndexChanged to drive the heatmap shader instead.
+  int m_SBSHeatmapOverlayIndex = -1;
 };

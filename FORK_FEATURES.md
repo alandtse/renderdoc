@@ -53,7 +53,28 @@ picked pixel in one eye to the corresponding location in the other eye.
    to indicate which eye the picked pixel belongs to. The comparison panel updates
    automatically showing both eye values and per-channel deltas.
 3. Click **Other Eye** in the pixel context panel to navigate to the corresponding
-   position in the opposite eye.
+   position in the opposite eye. The button label shows the computed destination
+   coordinates for the current pick, updated live as you move the pick around.
+4. Enable **Heatmap** (next to the SBS toggle) to flag, across the whole SBS texture at
+   once, every pixel where left/right eye reprojection disagrees — useful for spotting a
+   discrepancy visually before hunting for it pixel by pixel. A translucent red tint marks
+   a colour mismatch above the heatmap match threshold (the underlying image stays visible
+   underneath — this highlights, it doesn't replace, the original pixels); translucent blue
+   marks a pixel where reprojection is unreliable (see round-trip verification below).
+   Rendered by a generated custom shader directly into the displayed image (the same
+   mechanism as RenderDoc's built-in debug overlays), so it composites correctly with the
+   real render output instead of being layered on top as a separate UI element. Recompiled
+   on demand (toggling it on, changing SBS matrix/dynres settings, or navigating to a
+   different event) — the match threshold, channel selection, and round-trip settings
+   (right-click the SBS button) also recompile the shader, debounced so dragging a slider
+   doesn't recompile on every intermediate tick. Defaults to 10/255 on "Any channel" (max of
+   R/G/B), a rough "noticeable on casual viewing" cutoff that ignores per-eye
+   dithering/quantization noise. The channel selector can instead isolate Red/Green/Blue
+   (catches a post-effect, LUT, or fog tint applied to only one eye, which often shows as a
+   hue shift more than a brightness change) or Luma (perceptual brightness difference only,
+   ignoring pure colour/hue shifts, to focus on geometry or reprojection divergence).
+   **D3D11 captures only for now** — the toggle is disabled with an explanatory tooltip on
+   other APIs.
 
 **How it works:**
 When the pixel shader at the current EID has a constant buffer containing `float4x4[>=2]`
@@ -69,9 +90,37 @@ from `ShaderReflection` — no engine-specific hardcoded offsets. A `float4[>=2]
 whose name suggests a per-eye camera position (`CameraPosAdjust`, `EyePos`, etc.) is
 also extracted when present and used to correct IPD offset.
 
+The mismatch heatmap ports the same reprojection math to HLSL and runs it as a generated
+custom shader (`IReplayController::BuildCustomShader`, the same mechanism used for
+user-authored visualisation shaders), resolving a single matrix candidate for the whole
+image up front (rather than retrying candidates per pixel like the single-point jump) and
+embedding it, along with the current threshold/channel/round-trip settings, as literal
+shader constants. The shader samples the SBS texture at both the source and reprojected
+UV directly (both eyes are already in the one texture being displayed) and blends the
+mismatch/unreliable tint over the real sampled colour, so it is a true overlay rather than
+a separate compositing layer. Depth comes from a second texture bound alongside the
+display texture via a new `TextureDisplay::customShaderDepthId` field (D3D11-only for
+now — `renderdoc/driver/d3d11/d3d11_rendertexture.cpp` binds it at a spare SRV slot using
+the same `GetShaderDetails` helper the overlay/pixel-history paths already use for
+format-correct depth views). Optional round-trip (back-projection) verification
+reprojects each match back to its source eye and flags pixels whose round-trip drift
+exceeds a pixel threshold as unreliable rather than mismatched, to avoid flagging
+occlusion/disocclusion edges as false positives.
+
+An earlier version of this feature computed the diff on the CPU and displayed it via a
+semi-transparent Qt widget layered over the texture view. That doesn't work: the texture
+view paints directly to the screen outside Qt's compositing pipeline
+(`Qt::WA_PaintOnScreen`), so a translucent sibling widget blends against whatever Qt
+itself last painted there (effectively blank) rather than the live rendered image — it
+looked like the heatmap was replacing the picture instead of highlighting it. Rendering
+the heatmap as part of the actual GPU output sidesteps this entirely.
+
 **New components:**
 - `qrenderdoc/Code/SBSMapper` — eye-index detection, simple mirror fallback, and static
   `reproject()` for world-space reprojection via `VRFrameBufferMatrices`.
+- `TextureDisplay::customShaderDepthId` (`renderdoc/api/replay/control_types.h`) — optional
+  second resource bound alongside a custom shader's primary display texture. Local-only
+  (never serialized over remote replay), so no API/wire-protocol version bump was needed.
 
 **Known limitations:**
 - Detection relies on variable names containing `viewproj`/`view_proj` (case-insensitive).
@@ -79,6 +128,12 @@ also extracted when present and used to correct IPD offset.
   simple horizontal mirror.
 - Dynamic resolution is not accounted for in the UV→pixel conversion; pixels in the
   unrendered border region fall back to the simple mirror.
+- The heatmap is D3D11-only for now — the toggle is disabled on other APIs. Extending it to
+  D3D12/OpenGL/Vulkan means implementing the same second-resource binding in each backend's
+  custom-shader resource setup (`d3d12_rendertexture.cpp`, `gl_rendertexture.cpp`,
+  `vk_rendertexture.cpp`), not a fundamental blocker, just not done yet.
+- The heatmap requires a bound depth target and at least one detected (or manually entered)
+  stereo matrix; without either it leaves the display unchanged rather than guessing.
 
 ---
 

@@ -882,6 +882,33 @@ bool D3D11Replay::RenderTextureInternal(TextureDisplay cfg, TexDisplayFlags flag
 
     m_pImmediateContext->PSSetShaderResources(srvOffset, eTexType_Max, details.srv);
 
+    // Optional second resource for custom shaders that need to sample something other than the
+    // texture being displayed (e.g. a separate depth-stencil target for a stereo reprojection
+    // visualisation) - bound at a fixed slot past the highest one the block above ever uses.
+    if(cfg.customShaderId != ResourceId() && cfg.customShaderDepthId != ResourceId())
+    {
+      // CompType::Depth (not Typeless) is required here: for a genuinely typeless
+      // depth-stencil resource (e.g. D24S8_TYPELESS), GetShaderDetails only recognises it as a
+      // depth format when explicitly hinted, otherwise it can't create a valid SRV for a
+      // typeless resource at all.
+      //
+      // Always index srv[eTexType_Depth] explicitly rather than srv[depthDetails.texType]: for
+      // a combined depth+stencil resource, texType resolves to eTexType_Stencil (the "primary"
+      // classification GetShaderDetails picks for a dual-purpose resource), but the depth SRV
+      // is still separately populated at the eTexType_Depth slot - indexing by texType silently
+      // grabs the stencil channel instead of depth (reads back 0 for typical scenes, with no
+      // error of any kind).
+      TextureShaderDetails depthDetails =
+          GetDebugManager()->GetShaderDetails(cfg.customShaderDepthId, CompType::Depth, false);
+      ID3D11ShaderResourceView *depthSRV = depthDetails.srv[eTexType_Depth];
+      m_pImmediateContext->PSSetShaderResources(30, 1, &depthSRV);
+    }
+    else
+    {
+      ID3D11ShaderResourceView *nullSRV = NULL;
+      m_pImmediateContext->PSSetShaderResources(30, 1, &nullSRV);
+    }
+
     ID3D11SamplerState *samps[] = {m_TexRender.PointSampState, m_TexRender.LinearSampState};
     m_pImmediateContext->PSSetSamplers(0, 2, samps);
 
