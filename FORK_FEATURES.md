@@ -220,6 +220,72 @@ force-loading a PDB after the initial symbol resolution pass.
 
 ---
 
+### Instance Sync (Python extension, not compiled into the build)
+
+Synchronizes the current event and picked pixel location between exactly two RenderDoc
+instances, so a locked-camera scene captured into two separate `.rdc` files (successive
+frames, before/after a change, etc.) can be scrubbed and pixel-inspected in lockstep
+instead of manually re-navigating both windows for every comparison.
+
+**This is a RenderDoc Python extension, not something compiled into `renderdoc.dll`/
+`qrenderdoc.exe`.** RenderDoc only discovers extensions from the user's own config
+folder (`%APPDATA%\qrenderdoc\extensions` on Windows), never from the repo or install
+directory, so it can't be "built in" the normal sense — the source lives in this repo
+for version control, but each user installs it themselves.
+
+**Install:**
+1. Copy `util/qrenderdoc-extensions/instance_sync/` into
+   `%APPDATA%\qrenderdoc\extensions\instance_sync\` (Linux:
+   `~/.local/share/qrenderdoc/extensions/instance_sync/`).
+2. In **both** RenderDoc windows: **Tools → Manage Extensions**, tick **Enabled** for
+   "Instance Sync", restart if prompted.
+
+**Usage:** open one capture per window. Both instances attach to the same named
+shared-memory mapping (no host/client roles, no configuration) — whichever opens it
+first creates it, the other just opens the existing one. From then on, changing the
+current event (Event Browser navigation, step next/prev, Find) or picking a pixel in the
+Texture Viewer in either window mirrors it in the other.
+
+**How it works:**
+- Event sync is push-based on the local side: the extension registers as an
+  `ICaptureViewer` (`ICaptureContext.AddCaptureViewer`) to receive `OnEventChanged`, and
+  writes the new event ID into a shared-memory segment
+  (`mmap.mmap(-1, size, tagname=...)`). Applying an incoming update calls
+  `ICaptureContext.SetEventID` excluding itself from that call, so applying a remote
+  event doesn't re-trigger a write back to the peer.
+- Pixel sync has no push notification in the API (`ITextureViewer` only exposes a
+  `GetPickedLocation()` getter) — the extension polls it on a background thread (~150ms),
+  same thread that also polls the shared-memory segments for updates from the peer, and
+  calls `ITextureViewer.GotoLocation()` when an incoming pixel differs from the last one
+  applied.
+- The embedded RenderDoc Python interpreter does not bundle the `_socket` extension
+  module in this build (`socket`/`ssl`/`multiprocessing` all fail to import — confirmed
+  live; `PySide2.QtNetwork` isn't built either), so ordinary TCP/UDP IPC isn't available.
+  A named shared-memory mapping is used instead — it's resolved by name across processes
+  by the OS, so there's no listen/connect/bind step at all. Each shared segment carries a
+  sequence number and the writer's PID so a reader can tell "the peer just wrote this"
+  apart from its own most recent write. All calls back into RenderDoc are marshaled onto
+  the Qt UI thread via `MiniQtHelper.InvokeOntoUIThread`.
+
+**Known limitations:**
+- Two-instance design only: exactly two instances are expected to share the same shared
+  memory segments. A third instance enabling the extension will also attach to the same
+  segments and will interfere with the pairing - only run this with exactly two
+  instances.
+- Pixel sync latency is bounded by the ~150ms poll interval (event sync is pushed
+  immediately but still observed by the peer's poll loop, so it shares the same bound).
+- Shared-memory reads/writes aren't protected by a cross-process lock; given the tiny
+  payload and human/150ms-poll-paced update rate a torn read is exceedingly unlikely and
+  self-corrects on the next poll if it ever happens.
+- No UI indicator of sync/connection state yet - check the Python scripting console's
+  output for the "Instance Sync loaded (pid ...)" message logged at startup.
+
+**New components:**
+- `util/qrenderdoc-extensions/instance_sync/` — `extension.json` manifest and
+  `__init__.py` implementation.
+
+---
+
 ### Shader Source Names as First-Class Support
 
 Exposes full shader source filenames natively to RenderDoc's UI components, allowing easy filtering and discovery of API events by matching real source code filenames instead of just numerical IDs or pipeline states.

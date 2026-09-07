@@ -1,0 +1,9 @@
+{
+    "extension_api": 1,
+    "name": "Instance Sync",
+    "version": "1.0",
+    "minimum_renderdoc": "1.2",
+    "description": "Synchronizes the current event and picked pixel location between exactly two RenderDoc instances - e.g. comparing the same locked-camera scene across two different captures, frame by frame. Enable this extension in both instances; they sync via a named shared-memory mapping, so there is no host/client setup required. Not part of the compiled fork build - see FORK_FEATURES.md for install steps.",
+    "author": "alandtse/renderdoc fork",
+    "url": "https://github.com/alandtse/renderdoc"
+}
