@@ -3935,6 +3935,11 @@ EventBrowser::EventBrowser(ICaptureContext &ctx, QWidget *parent)
   m_FilterTimeout->setSingleShot(true);
   connect(m_FilterTimeout, &QTimer::timeout, this, &EventBrowser::filter_apply);
 
+  m_EventNavDebounce = new QTimer(this);
+  m_EventNavDebounce->setInterval(150);
+  m_EventNavDebounce->setSingleShot(true);
+  connect(m_EventNavDebounce, &QTimer::timeout, this, &EventBrowser::events_commitEventChange);
+
   QObject::connect(ui->events, &RDTreeView::keyPress, this, &EventBrowser::events_keyPress);
   QObject::connect(ui->events->selectionModel(), &QItemSelectionModel::currentChanged, this,
                    &EventBrowser::events_currentChanged);
@@ -4268,13 +4273,34 @@ void EventBrowser::events_currentChanged(const QModelIndex &current, const QMode
   uint32_t selectedEID = GetSelectedEID(current);
   uint32_t effectiveEID = GetEffectiveEID(current);
 
+  m_PendingSelectedEID = selectedEID;
+  m_PendingEffectiveEID = effectiveEID;
+
   if(selectedEID == m_Ctx.CurSelectedEvent() && effectiveEID == m_Ctx.CurEvent())
+  {
+    m_EventNavDebounce->stop();
     return;
+  }
 
-  m_Ctx.SetEventID({this}, selectedEID, effectiveEID);
-
-  m_Model->RefreshCache();
-  m_Breadcrumbs->OnEventChanged(effectiveEID);
+  // SetEventID replays to the event and triggers every capture viewer to refresh (texture
+  // viewer thumbnail regeneration and full re-display, pipeline state readback, etc). On a
+  // large capture with big textures that's expensive, so while the user is still scrubbing
+  // through events (arrow keys, click-drag, holding step next/prev) to find a specific one,
+  // coalesce rapid changes into a single SetEventID once the selection settles instead of
+  // paying that cost on every intermediate event. The cheap tree-local feedback below still
+  // updates immediately so scrubbing itself stays responsive.
+  //
+  // Deliberate one-shot jumps (Find/Find Next) opt out via m_ImmediateEventNav to keep their
+  // old synchronous behaviour.
+  if(m_ImmediateEventNav)
+  {
+    m_EventNavDebounce->stop();
+    events_commitEventChange();
+  }
+  else
+  {
+    m_EventNavDebounce->start();
+  }
 
   const ActionDescription *action = m_Ctx.GetAction(selectedEID);
 
@@ -4293,6 +4319,17 @@ void EventBrowser::events_currentChanged(const QModelIndex &current, const QMode
     ui->stepPrev->setEnabled(true);
 
   highlightBookmarks();
+}
+
+void EventBrowser::events_commitEventChange()
+{
+  if(!m_Ctx.IsCaptureLoaded())
+    return;
+
+  m_Ctx.SetEventID({this}, m_PendingSelectedEID, m_PendingEffectiveEID);
+
+  m_Model->RefreshCache();
+  m_Breadcrumbs->OnEventChanged(m_PendingEffectiveEID);
 }
 
 void EventBrowser::on_HideFind()
@@ -4351,7 +4388,13 @@ void EventBrowser::FindNext(bool forward)
     // if we got a valid visible result, select it
     if(mappedResult.isValid())
     {
+      // Find/Find Next is a deliberate one-shot jump, not continuous scrubbing, and
+      // subsequent Find Next presses rely on the previous jump's replay having already
+      // committed (the search anchors from the current event). So skip the nav debounce
+      // and apply it immediately, preserving the old synchronous behaviour.
+      m_ImmediateEventNav = true;
       SelectEvent(m_FilterModel->mapFromSource(result));
+      m_ImmediateEventNav = false;
     }
     else
     {
@@ -5465,13 +5508,16 @@ void EventBrowser::on_stepNext_clicked()
   if(!m_Ctx.IsCaptureLoaded() || !ui->stepNext->isEnabled())
     return;
 
-  const ActionDescription *action = m_Ctx.CurAction();
+  // Use the pending (possibly not-yet-committed, if the nav debounce is in flight) event
+  // rather than m_Ctx.CurAction(), so repeatedly stepping (e.g. holding the shortcut) keeps
+  // advancing one action at a time instead of re-targeting the same not-yet-applied event.
+  const ActionDescription *action = m_Ctx.GetAction(m_PendingEffectiveEID);
 
   if(action)
     action = action->nextAction;
 
   // special case for the first 'virtual' action at EID 0
-  if(m_Ctx.CurEvent() == 0)
+  if(m_PendingEffectiveEID == 0)
     action = m_Ctx.GetFirstAction();
 
   while(action)
@@ -5491,7 +5537,9 @@ void EventBrowser::on_stepPrev_clicked()
   if(!m_Ctx.IsCaptureLoaded() || !ui->stepPrev->isEnabled())
     return;
 
-  const ActionDescription *action = m_Ctx.CurAction();
+  // See on_stepNext_clicked: use the pending event, not m_Ctx.CurAction(), so repeated
+  // stepping keeps advancing while a nav debounce commit is still in flight.
+  const ActionDescription *action = m_Ctx.GetAction(m_PendingEffectiveEID);
 
   if(action)
     action = action->previousAction;

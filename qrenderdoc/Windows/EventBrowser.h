@@ -189,6 +189,7 @@ private slots:
   void events_keyPress(QKeyEvent *event);
   void events_contextMenu(const QPoint &pos);
   void events_currentChanged(const QModelIndex &current, const QModelIndex &previous);
+  void events_commitEventChange();
   void locationEdit_clicked();
   void location_leave();
   void location_keyPress(QKeyEvent *e);
@@ -234,6 +235,19 @@ private:
   RDTreeViewExpansionState m_EventsExpansion;
 
   QTimer *m_FindHighlight, *m_FilterTimeout;
+
+  // Debounces the expensive SetEventID (replay + full UI refresh) triggered by tree
+  // selection changes, so scrubbing through events in a large capture doesn't pay that
+  // cost per intermediate event. m_PendingSelectedEID/m_PendingEffectiveEID track the most
+  // recently requested (but maybe not yet committed) event, and are also consulted by
+  // step next/prev so repeated stepping keeps advancing while a commit is in flight.
+  QTimer *m_EventNavDebounce;
+  uint32_t m_PendingSelectedEID = 0, m_PendingEffectiveEID = 0;
+
+  // Set around SelectEvent() calls that are deliberate one-shot jumps (currently Find/Find
+  // Next) rather than continuous scrubbing, so they bypass m_EventNavDebounce and commit
+  // synchronously like before debouncing was introduced.
+  bool m_ImmediateEventNav = false;
 
   ParseTrace *m_ParseTrace;
   ParseErrorTipLabel *m_ParseError;
