@@ -31,6 +31,16 @@ Reads/writes to each shared segment are not protected by a cross-process lock. G
 the tiny payload size and human-paced (or 150ms-polled) update frequency, a torn read
 is exceedingly unlikely and self-corrects on the next poll if it ever happens - not
 worth the added complexity of a named mutex for what this is used for.
+
+Pixel-distance readout: each side reads back its own picked pixel's RGBA value (via
+IReplayController.PickPixel on the texture currently shown in its Texture Viewer,
+CompType.Typeless so no reinterpretation is applied) and publishes it alongside the
+coordinates. Since the two instances have separate GPU devices/processes, one can't bind
+the other's texture directly the way the SBS eye-compare heatmap samples both eyes from
+a single device - so this stays a numeric readout (peer's RGBA and the distance to it)
+rather than a live GPU-composited overlay like SBS. A full image-wide heatmap across
+instances would need a new core API to upload a transferred frame as a sampleable
+texture; out of scope here.
 """
 
 import mmap
@@ -40,18 +50,48 @@ import threading
 import time
 
 import qrenderdoc as qrd
+import renderdoc as rd
 
 # Separate segments per kind of state, so an event update and a pixel update can never
 # race against each other via a shared read-modify-write.
 SHM_TAG_EVENT = "RenderDocInstanceSync_Event_v1"
-SHM_TAG_PIXEL = "RenderDocInstanceSync_Pixel_v1"
+# v2: bumped when the pixel payload grew to include the picked color (RGBA), so an
+# older-version instance never opens a same-named mapping sized for the old, smaller
+# struct.
+SHM_TAG_PIXEL = "RenderDocInstanceSync_Pixel_v2"
 
 # seq, origin_pid, event_id
 EVENT_FMT = "<iii"
-# seq, origin_pid, x, y
-PIXEL_FMT = "<iiii"
+# seq, origin_pid, x, y, r, g, b, a
+PIXEL_FMT = "<iiiiffff"
 
 POLL_INTERVAL_SECS = 0.15
+
+# Severity tiers for the delta readout, matching the SBS eye-compare heatmap's
+# language (10/255 is that feature's default mismatch threshold - see
+# TextureViewer's m_SBSHeatmapThreshold): green below it, red at a clearly
+# significant mismatch, yellow in between.
+_SEVERITY_GREEN_MAX = 10.0 / 255.0
+_SEVERITY_RED_MIN = 40.0 / 255.0
+_SEVERITY_COLORS = {
+    "green": "#2ecc71",
+    "yellow": "#f1c40f",
+    "red": "#e74c3c",
+}
+
+
+def _severity_color(dist):
+    if dist < _SEVERITY_GREEN_MAX:
+        return _SEVERITY_COLORS["green"]
+    if dist < _SEVERITY_RED_MIN:
+        return _SEVERITY_COLORS["yellow"]
+    return _SEVERITY_COLORS["red"]
+
+
+def _fmt_color(c):
+    if c is None:
+        return "no pick yet"
+    return "RGBA(%.3f, %.3f, %.3f, %.3f)" % c
 
 
 class InstanceSync(qrd.CaptureViewer):
@@ -78,10 +118,27 @@ class InstanceSync(qrd.CaptureViewer):
         self._last_event_seq_seen = -1
         self._last_pixel_seq_seen = -1
 
+        # For the pixel-distance readout panel.
+        self._last_local_color = None
+        self._last_peer_color = None
+        self._last_peer_pid = None
+
+        self._toplevel = self.mqh.CreateToplevelWidget("Instance Sync", self._on_panel_closed)
+        container = self.mqh.CreateVerticalContainer()
+        self.mqh.AddWidget(self._toplevel, container)
+        self._label = self.mqh.CreateLabel()
+        self.mqh.AddWidget(container, self._label)
+        self.mqh.SetWidgetText(self._label, "Instance Sync: waiting for a pixel pick...")
+        ctx.AddDockWindow(self._toplevel, qrd.DockReference.NewFloatingArea, None)
+
         ctx.AddCaptureViewer(self)
 
         self._poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
         self._poll_thread.start()
+
+    def _on_panel_closed(self, ctx, widget, text):
+        self._toplevel = None
+        self._label = None
 
     # -- ICaptureViewer overrides (see qrenderdoc.CaptureViewer) --
 
@@ -104,7 +161,9 @@ class InstanceSync(qrd.CaptureViewer):
 
     def _write(self, shm, fmt, *values):
         # Bump the sequence number so readers (including ourselves, harmlessly) can tell
-        # this write apart from whatever was there before.
+        # this write apart from whatever was there before. Sequence numbers start at 1 -
+        # a segment nobody has ever written to reads back as all zeros (seq 0), which
+        # readers treat as "no message yet" rather than a real update from pid 0.
         shm.seek(0)
         prev = shm.read(struct.calcsize(fmt))
         prev_seq = struct.unpack(fmt, prev)[0] if len(prev) == struct.calcsize(fmt) else 0
@@ -113,13 +172,117 @@ class InstanceSync(qrd.CaptureViewer):
         shm.flush()
         return prev_seq + 1
 
+    def _pick_color(self, tex, xy, sub):
+        # Reads back the RGBA value at the given pixel of the texture currently shown in
+        # the Texture Viewer. CompType.Typeless means no reinterpretation is applied - the
+        # value is read as whatever the texture's native format is.
+        if tex is None or sub is None:
+            return (0.0, 0.0, 0.0, 0.0)
+        out = {}
+
+        def cb(controller):
+            val = controller.PickPixel(tex, xy[0], xy[1], sub, rd.CompType.Typeless)
+            out["v"] = tuple(val.floatValue)
+
+        try:
+            self.ctx.Replay().BlockInvoke(cb)
+        except Exception:
+            pass
+        return out.get("v", (0.0, 0.0, 0.0, 0.0))
+
+    def _update_label(self):
+        # Rich-text HTML so the delta line can be color-coded by severity, the
+        # same green/yellow/red language the SBS eye-compare heatmap uses to
+        # flag mismatches (see _SEVERITY_GREEN_MAX/_SEVERITY_RED_MIN above) -
+        # a plain monochrome number doesn't make a big discrepancy jump out the
+        # way the heatmap's red tint does.
+        def do_update():
+            if self._label is None:
+                return
+            lc = self._last_local_color
+            pc = self._last_peer_color
+            lines = ["Local &nbsp;%s: %s" % (self._last_pixel, _fmt_color(lc))]
+            if pc is not None:
+                lines.append("Peer &nbsp;&nbsp;(pid %s): %s" % (self._last_peer_pid, _fmt_color(pc)))
+                if lc is not None:
+                    diffs = [abs(a - b) for a, b in zip(lc, pc)]
+                    dist = sum(d * d for d in diffs[:3]) ** 0.5
+                    color = _severity_color(dist)
+                    lines.append(
+                        '<span style="color:%s; font-weight:bold;">'
+                        "Delta RGB dist: %.4f &nbsp;(max channel: %.4f)</span>"
+                        % (color, dist, max(diffs[:3]))
+                    )
+            else:
+                lines.append("Peer: no pixel received yet")
+            self.mqh.SetWidgetText(self._label, "<br>".join(lines))
+
+        try:
+            self.mqh.InvokeOntoUIThread(do_update)
+        except Exception:
+            pass
+
     def _poll_loop(self):
         last_local_pixel = (-1, -1)
+        # The xy this instance has already published its own color for - separate from
+        # _last_pixel (which also gets set by applying a *remote* move) so that after
+        # applying a peer's move we still publish our own color back once, instead of
+        # treating it as an echo of a coordinate we already know about.
+        color_published_for = (-1, -1)
+
         while self.running:
             time.sleep(POLL_INTERVAL_SECS)
 
-            # 1. Detect a local pixel pick (no push notification exists for this) and
-            #    publish it.
+            # Remote updates are checked *before* this instance publishes its own local
+            # state below. Both directions live in the same shared segment, last-write-
+            # wins - if local-publish ran first, this instance's own routine republish of
+            # its current pixel (see the "echo our own color back" comment below) could
+            # overwrite a peer message that arrived in between, before this loop ever got
+            # a chance to read it, permanently losing that update.
+
+            # 1. Check for a remote event update.
+            self._event_shm.seek(0)
+            edata = self._event_shm.read(struct.calcsize(EVENT_FMT))
+            if len(edata) == struct.calcsize(EVENT_FMT):
+                eseq, eorigin, eid = struct.unpack(EVENT_FMT, edata)
+                if eseq > 0 and eseq > self._last_event_seq_seen:
+                    self._last_event_seq_seen = eseq
+                    if eorigin != self.pid and eid != self._last_event:
+                        self._last_event = eid
+
+                        def apply_event(eid=eid):
+                            if self.ctx.IsCaptureLoaded():
+                                self.ctx.SetEventID([self], eid, eid)
+
+                        self.mqh.InvokeOntoUIThread(apply_event)
+
+            # 2. Check for a remote pixel update. Always record the peer's color/pixel
+            #    for the readout, but only re-navigate if the coordinates actually moved
+            #    (a peer echoing our own color back at the same pixel shouldn't re-trigger
+            #    GotoLocation).
+            self._pixel_shm.seek(0)
+            pdata = self._pixel_shm.read(struct.calcsize(PIXEL_FMT))
+            if len(pdata) == struct.calcsize(PIXEL_FMT):
+                pseq, porigin, px, py, pr, pg, pb, pa = struct.unpack(PIXEL_FMT, pdata)
+                if pseq > 0 and pseq > self._last_pixel_seq_seen:
+                    self._last_pixel_seq_seen = pseq
+                    if porigin != self.pid:
+                        self._last_peer_color = (pr, pg, pb, pa)
+                        self._last_peer_pid = porigin
+                        self._update_label()
+                        if (px, py) != self._last_pixel:
+                            self._last_pixel = (px, py)
+
+                            def apply_pixel(px=px, py=py):
+                                if self.ctx.HasTextureViewer():
+                                    self.ctx.GetTextureViewer().GotoLocation(px, py)
+
+                            self.mqh.InvokeOntoUIThread(apply_pixel)
+
+            # 3. Detect a local pixel pick (no push notification exists for this),
+            #    read back its color, and publish both - including echoing our own color
+            #    back after applying a peer's move above, so the peer's readout gets our
+            #    side of the comparison too.
             picked = {}
             # InvokeOntoUIThread queues the callback and returns immediately - it does not
             # block until the callback has actually run - so without this event, the read
@@ -128,7 +291,10 @@ class InstanceSync(qrd.CaptureViewer):
 
             def read_picked():
                 if self.ctx.HasTextureViewer():
-                    picked["xy"] = tuple(self.ctx.GetTextureViewer().GetPickedLocation())
+                    tv = self.ctx.GetTextureViewer()
+                    picked["xy"] = tuple(tv.GetPickedLocation())
+                    picked["tex"] = tv.GetCurrentResource()
+                    picked["sub"] = tv.GetSelectedSubresource()
                 done.set()
 
             try:
@@ -140,41 +306,13 @@ class InstanceSync(qrd.CaptureViewer):
             xy = picked.get("xy")
             if xy is not None and xy != last_local_pixel:
                 last_local_pixel = xy
-                if xy != self._last_pixel and xy[0] >= 0 and xy[1] >= 0:
+                if xy[0] >= 0 and xy[1] >= 0 and xy != color_published_for:
+                    color_published_for = xy
+                    color = self._pick_color(picked.get("tex"), xy, picked.get("sub"))
                     self._last_pixel = xy
-                    self._write(self._pixel_shm, PIXEL_FMT, xy[0], xy[1])
-
-            # 2. Check for a remote event update.
-            self._event_shm.seek(0)
-            edata = self._event_shm.read(struct.calcsize(EVENT_FMT))
-            if len(edata) == struct.calcsize(EVENT_FMT):
-                eseq, eorigin, eid = struct.unpack(EVENT_FMT, edata)
-                if eseq > self._last_event_seq_seen:
-                    self._last_event_seq_seen = eseq
-                    if eorigin != self.pid and eid != self._last_event:
-                        self._last_event = eid
-
-                        def apply_event(eid=eid):
-                            if self.ctx.IsCaptureLoaded():
-                                self.ctx.SetEventID([self], eid, eid)
-
-                        self.mqh.InvokeOntoUIThread(apply_event)
-
-            # 3. Check for a remote pixel update.
-            self._pixel_shm.seek(0)
-            pdata = self._pixel_shm.read(struct.calcsize(PIXEL_FMT))
-            if len(pdata) == struct.calcsize(PIXEL_FMT):
-                pseq, porigin, px, py = struct.unpack(PIXEL_FMT, pdata)
-                if pseq > self._last_pixel_seq_seen:
-                    self._last_pixel_seq_seen = pseq
-                    if porigin != self.pid and (px, py) != self._last_pixel:
-                        self._last_pixel = (px, py)
-
-                        def apply_pixel(px=px, py=py):
-                            if self.ctx.HasTextureViewer():
-                                self.ctx.GetTextureViewer().GotoLocation(px, py)
-
-                        self.mqh.InvokeOntoUIThread(apply_pixel)
+                    self._last_local_color = color
+                    self._write(self._pixel_shm, PIXEL_FMT, xy[0], xy[1], *color)
+                    self._update_label()
 
     def shutdown(self):
         self.running = False

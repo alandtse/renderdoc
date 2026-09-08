@@ -244,7 +244,11 @@ for version control, but each user installs it themselves.
 shared-memory mapping (no host/client roles, no configuration) — whichever opens it
 first creates it, the other just opens the existing one. From then on, changing the
 current event (Event Browser navigation, step next/prev, Find) or picking a pixel in the
-Texture Viewer in either window mirrors it in the other.
+Texture Viewer in either window mirrors it in the other. Each window also gets a small
+floating "Instance Sync" panel showing the local and peer pixel's RGBA value and the
+distance between them, color-coded green/yellow/red by severity — the same language the
+SBS eye-compare heatmap uses to flag mismatches — so a frame-to-frame pixel divergence is
+visible at a glance instead of just another black number.
 
 **How it works:**
 - Event sync is push-based on the local side: the extension registers as an
@@ -266,6 +270,14 @@ Texture Viewer in either window mirrors it in the other.
   sequence number and the writer's PID so a reader can tell "the peer just wrote this"
   apart from its own most recent write. All calls back into RenderDoc are marshaled onto
   the Qt UI thread via `MiniQtHelper.InvokeOntoUIThread`.
+- Pixel color readback uses `IReplayController.PickPixel` on the texture currently shown
+  in that instance's Texture Viewer (`CompType.Typeless`, no reinterpretation), published
+  alongside the coordinates in the same shared-memory message. Since the two instances
+  have separate GPU devices/processes, one can't bind the other's texture directly the
+  way the SBS heatmap samples both eyes from a single device, so this stays a numeric
+  readout rather than a live GPU-composited overlay — a full image-wide cross-instance
+  heatmap would need a new core API to upload a transferred frame as a sampleable
+  texture, which is out of scope here.
 
 **Known limitations:**
 - Two-instance design only: exactly two instances are expected to share the same shared
