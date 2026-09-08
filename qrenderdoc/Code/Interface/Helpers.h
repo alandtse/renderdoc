@@ -36,7 +36,7 @@ buffers.
 Each individual member rule is such that ``False`` is more restrictive on packing, and ``True``
 is less restrictive.
 
-Several helpers are available for the common formats, see :meth:`PackingRules.STD140`, 
+Several helpers are available for the common formats, see :meth:`PackingRules.STD140`,
 :meth:`PackingRules.STD430`, :meth:`PackingRules.D3DCB`, :meth:`PackingRules.C` which provide
 a quick way to fetch a known set of packing rules.
 )");
